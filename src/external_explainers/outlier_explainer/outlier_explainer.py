@@ -1,6 +1,7 @@
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
+from pandas import Series
 from pandas.core.interchange.dataframe_protocol import DataFrame
 from typing import List, Tuple, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -252,7 +253,7 @@ class OutlierExplainer:
 
         return predicates
 
-    def draw_bar_plot(self, df_agg: DataFrame, final_df: DataFrame, g_att: str, g_agg: str, final_pred_by_attr: dict,
+    def draw_bar_plot(self, df_agg: DataFrame | Series, final_df: DataFrame, g_att: str, g_agg: str, final_pred_by_attr: dict,
                       target: str, agg_title: str) -> None:
         """
         Draw a bar plot to visualize the influence of predicates on the target attribute.

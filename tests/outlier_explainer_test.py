@@ -5,6 +5,11 @@ import os
 import json
 from colorama import Fore
 from colorama import init as colorama_init
+import argparse
+
+# Allow the user to save new results to a file, instead of running the test
+parser = argparse.ArgumentParser(description='Reproduce the outlier explainer results.')
+parser.add_argument('--save', action='store_true', help='Save the reproduced results to a file, overwriting the existing file. Only use this if you are certain that the reproduced results are correct.')
 
 colorama_init(autoreset=True)
 
@@ -83,6 +88,8 @@ def run_outlier_explainer(dataset, gb_on, agg_function, select, dir, target) -> 
 
 def main():
 
+    args = parser.parse_args()
+
     with open(r"resources/results/outlier_explainer_results.json", "r") as read_file:
         saved_results = json.load(read_file)
 
@@ -100,6 +107,12 @@ def main():
             dir=values['dir'],
             target=values['target']
         )
+
+    if args.save:
+        with open(r"resources/results/outlier_explainer_results.json", "w") as write_file:
+            json.dump(reproduced_results, write_file, indent=4)
+        print(f"{Fore.GREEN}Reproduced results saved to file.")
+        exit(0)
 
     # Temporarily save the reproduced results to a json file
     with open(r"resources/results/reproduced_outlier_explainer_results.json", "w") as write_file:

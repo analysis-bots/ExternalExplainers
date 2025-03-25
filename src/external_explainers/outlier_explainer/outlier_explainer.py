@@ -253,37 +253,11 @@ class OutlierExplainer:
 
         return predicates
 
-    def draw_bar_plot(self, df_agg: DataFrame | Series, final_df: DataFrame, g_att: str, g_agg: str, final_pred_by_attr: dict,
-                      target: str, agg_title: str) -> None:
-        """
-        Draw a bar plot to visualize the influence of predicates on the target attribute.
 
-        This function generates a bar plot comparing the aggregated values of the target attribute
-        before and after applying the most influential predicates. It highlights the differences
-        and provides an explanation for the outlier.
-
-        :param df_agg: DataFrame containing the aggregated data.
-        :param final_df: DataFrame containing the final aggregated data after applying predicates.
-        :param g_att: The grouping attribute.
-        :param g_agg: The aggregation attribute.
-        :param final_pred_by_attr: Dictionary containing the final predicates grouped by attribute.
-        :param target: The target attribute for which the influence is being visualized.
-        :param agg_title: Title for the aggregation method used in the plot.
-
-        :return: None. Displays the bar plot.
-        """
-        fig, ax = plt.subplots(layout='constrained', figsize=(5, 5))
-        x1 = list(df_agg.index)
-        ind1 = np.arange(len(x1))
-        y1 = df_agg.values
-
-        x2 = list(final_df.index)
-        ind2 = np.arange(len(x2))
-        y2 = final_df.values
-
+    def pred_to_human_readable(self, non_formatted_pred):
         explanation = f'This outlier is not as significant when excluding rows with:\n'
         for_wizard = ''
-        for a, bins in final_pred_by_attr.items():
+        for a, bins in non_formatted_pred.items():
             for b in bins:
                 if type(b[0]) is tuple:
                     pred = f"{b[0][0]} < {a} < {b[0][1]}"
@@ -300,6 +274,39 @@ class OutlierExplainer:
             for_wizard += inter_exp
             explanation += inter_exp
 
+        return explanation, for_wizard
+
+    def draw_bar_plot(self, df_agg: DataFrame | Series, final_df: DataFrame, g_att: str, g_agg: str, final_pred_by_attr: dict,
+                      target: str, agg_title: str, added_text: dict = None) -> None:
+        """
+        Draw a bar plot to visualize the influence of predicates on the target attribute.
+
+        This function generates a bar plot comparing the aggregated values of the target attribute
+        before and after applying the most influential predicates. It highlights the differences
+        and provides an explanation for the outlier.
+
+        :param df_agg: DataFrame containing the aggregated data.
+        :param final_df: DataFrame containing the final aggregated data after applying predicates.
+        :param g_att: The grouping attribute.
+        :param g_agg: The aggregation attribute.
+        :param final_pred_by_attr: Dictionary containing the final predicates grouped by attribute.
+        :param target: The target attribute for which the influence is being visualized.
+        :param agg_title: Title for the aggregation method used in the plot.
+        :param added_text: Additional text to add to the plot. Optional. Expected: dict with 'text' and 'position' keys.
+
+        :return: None. Displays the bar plot.
+        """
+        fig, ax = plt.subplots(figsize=(5, 5))
+        x1 = list(df_agg.index)
+        ind1 = np.arange(len(x1))
+        y1 = df_agg.values
+
+        x2 = list(final_df.index)
+        ind2 = np.arange(len(x2))
+        y2 = final_df.values
+
+        explanation, for_wizard = self.pred_to_human_readable(final_pred_by_attr)
+
         bar1 = ax.bar(ind1 - 0.2, y1, 0.4, alpha=1., label='All')
         bar2 = ax.bar(ind2 + 0.2, y2, 0.4, alpha=1., label=f'without\n{for_wizard}')
         ax.set_ylabel(f'{g_agg} {agg_title}')
@@ -314,11 +321,52 @@ class OutlierExplainer:
         bar2[x2.index(target)].set_linewidth(2)
         ax.get_xticklabels()[x1.index(target)].set_color('tab:green')
 
+        plt.tight_layout()
+
+        if added_text is not None:
+            # Draw the plot first to establish the bounding boxes.
+            plt.draw()
+            text = added_text['text']
+            position = added_text['position']
+            renderer = ax.figure.canvas.get_renderer()
+            max_label_height = 0
+
+            for label in ax.get_xticklabels() + [ax.xaxis.get_label()]:
+                bbox = label.get_window_extent(renderer=renderer)
+                if bbox.height > max_label_height:
+                    max_label_height = bbox.height
+
+            if position == "bottom":
+                offset_in_points = -(max_label_height + 10)
+
+                ax.annotate(
+                    text,
+                    xy=(0.5, 0),  # anchor at the bottom of the axes
+                    xycoords='axes fraction',
+                    xytext=(0, offset_in_points),
+                    textcoords='offset points',
+                    ha='center', va='top',
+                    fontsize=16
+                )
+            elif position == "top":
+                offset_in_points = max_label_height + 10
+
+                ax.annotate(
+                    text,
+                    xy=(0.5, 1),  # anchor at the top of the axes
+                    xycoords='axes fraction',
+                    xytext=(0, offset_in_points),
+                    textcoords='offset points',
+                    ha='center', va='bottom',
+                    fontsize=16
+                )
+
         plt.show()
 
 
     def explain(self, df_agg: DataFrame, df_in: DataFrame, g_att: str, g_agg: str, agg_method: str, target: str,
-                dir: int, control=None, hold_out: List = [], k: int = 1) -> str | None:
+                dir: int, control=None, hold_out: List = None, k: int = 1, draw_plot: bool = True) \
+            -> str | None | Tuple:
         """
         Explain the outlier in the given DataFrame.
 
@@ -340,6 +388,9 @@ class OutlierExplainer:
 
         :return: None. Will generate a plot with the explanation for the outlier.
         """
+        if hold_out is None:
+            hold_out = []
+
         # Get the attributes from the input DataFrame and remove the hold-out attributes.
         attrs = df_in.columns
         attrs = [a for a in attrs if a not in hold_out + [g_att, g_agg]]
@@ -390,6 +441,9 @@ class OutlierExplainer:
                 final_pred_by_attr[a] = []
             final_pred_by_attr[a].append((i, rank))
 
-        # Create a plot to display the explanation for the outlier.
-        self.draw_bar_plot(df_agg, final_df, g_att, g_agg, final_pred_by_attr, target, agg_title)
-        return None
+        # Create a plot to display the explanation for the outlier, or return everything needed to draw the plot later.
+        if draw_plot:
+            self.draw_bar_plot(df_agg, final_df, g_att, g_agg, final_pred_by_attr, target, agg_title)
+            return None
+        else:
+            return df_agg, final_df, g_att, g_agg, final_pred_by_attr, target, agg_title

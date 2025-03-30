@@ -66,7 +66,11 @@ class OutlierExplainer:
         try:
             # Compute target influence - the ratio between the change in the output and the number of
             # tuples that satisfy the predicate, multiplied by the direction factor.
-            target_inf = ((df_before[target] - df_after[target]) * dir) / (df_before[target] + df_after[target])
+            denominator = df_before[target] + df_after[target]
+            # We may have a try catch here, but division by zero is still causing a runtime warning.
+            if denominator == 0:
+                return -1
+            target_inf = ((df_before[target] - df_after[target]) * dir) / denominator
         except:
             return -1
 

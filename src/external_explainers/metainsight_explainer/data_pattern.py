@@ -1,0 +1,189 @@
+import pandas as pd
+from typing import Dict, List, Tuple
+
+from external_explainers.metainsight_explainer.data_scope import DataScope, HomogenousDataScope
+from external_explainers.metainsight_explainer.pattern_evaluations import PatternEvaluator, PatternType
+
+class BasicDataPattern:
+    """
+    A data pattern, as defined in the MetaInsight paper.
+    Contains 3 elements: data scope, type (interpretation type) and highlight.
+    """
+
+    def __init__(self, data_scope: DataScope, pattern_type: PatternType, highlight: str | None):
+        """
+        Initialize the BasicDataPattern with the provided data scope, type and highlight.
+
+        :param data_scope: The data scope of the pattern. a DataScope object.
+        :param pattern_type: str, e.g., 'Unimodality', 'Trend', 'Other Pattern', 'No Pattern'
+        :param highlight: depends on type, e.g., ('April', 'Valley') for Unimodality
+        """
+        self.data_scope = data_scope
+        self.pattern_type = pattern_type
+        self.highlight = highlight
+        self.pattern_cache = {}
+
+    def __eq__(self, other):
+        if not isinstance(other, BasicDataPattern):
+            return False
+        return self.pattern_type == other.pattern_type and \
+            self.highlight == other.highlight and \
+            self.data_scope == other.data_scope
+
+
+    def sim(self, other) -> bool:
+        """
+        Computes the similarity between two BasicDataPattern objects.
+        They are similar if they have the same pattern type and highlight, as well as neither having
+        a pattern type of NONE or OTHER.
+
+        :param other: The other BasicDataPattern object to compare with.
+        :return: True if similar, False otherwise.
+        """
+        if not isinstance(other, BasicDataPattern):
+            return False
+        # There is no REAL need to check that both don't have NONE or OTHER pattern types, since if one
+        # has it but the other doesn't, the equality will be false anyway. If they both have it, then
+        # the equality conditions will be true but the inequality conditions will be false.
+        return self.pattern_type == other.pattern_type and self.highlight == other.highlight and \
+               self.pattern_type != PatternType.NONE and self.pattern_type != PatternType.OTHER
+
+    def __hash__(self):
+        return hash((self.data_scope, self.pattern_type, self.highlight))
+
+    def __repr__(self):
+        return f"BasicDataPattern(ds={self.data_scope}, type='{self.pattern_type}', highlight={self.highlight})"
+
+    @staticmethod
+    def evaluate_pattern(data_scope: DataScope, df: pd.DataFrame, pattern_type: PatternType) -> 'BasicDataPattern':
+        """
+        Evaluates a specific pattern type for the data distribution of a data scope.
+        :param data_scope: The data scope to evaluate.
+        :param df: The DataFrame containing the data.
+        :param pattern_type: The type of the pattern to evaluate.
+        """
+        # Apply subspace filters
+        filtered_df = df.copy()
+        for dim, value in data_scope.subspace.items():
+            if value != '*':
+                filtered_df = filtered_df[filtered_df[dim] == value]
+
+        # Group by breakdown dimension and aggregate measure
+        if data_scope.breakdown not in filtered_df.columns:
+            # Cannot group by breakdown if it's not in the filtered data
+            return BasicDataPattern(data_scope, PatternType.NONE, None)
+
+        measure_col, agg_func = data_scope.measure
+        if measure_col not in filtered_df.columns:
+            # Cannot aggregate if measure column is not in the data
+            return BasicDataPattern(data_scope, PatternType.NONE, None)
+
+        try:
+            # Perform the aggregation
+            aggregated_series = filtered_df.groupby(data_scope.breakdown)[measure_col].agg(agg_func)
+        except Exception as e:
+            print(f"Error during aggregation for {data_scope}: {e}")
+            return BasicDataPattern(data_scope, PatternType.NONE, None)
+
+        # Ensure series is sortable if breakdown is temporal
+        if df[data_scope.breakdown].dtype in ['datetime64[ns]', 'period[M]', 'int64']:
+            aggregated_series = aggregated_series.sort_index()
+
+        # Evaluate the specific pattern type
+        pattern_evaluator = PatternEvaluator()
+        is_valid, highlight = pattern_evaluator(aggregated_series, pattern_type)
+        if is_valid:
+            return BasicDataPattern(data_scope, pattern_type, highlight)
+        else:
+            # Check for other pattern types
+            for other_type in PatternType:
+                if other_type != pattern_type:
+                    other_is_valid, _ = pattern_evaluator(aggregated_series, other_type)
+                    if other_is_valid:
+                        return BasicDataPattern(data_scope, PatternType.OTHER, None)
+
+        # If no pattern is found, return a 'No Pattern' type
+        return BasicDataPattern(data_scope, PatternType.NONE, None)
+
+    def create_hdp(self, pattern_type: PatternType, pattern_cache: Dict = None,
+                   hds: List[DataScope] = None, temporal_dimensions: List[str] = None,
+                   measures: Dict[str,str] = None) -> Tuple[List['BasicDataPattern'], Dict]:
+        """
+        Generates a Homogenous Data Pattern (HDP) either from a given HDS or from the current DataScope.
+
+        :param pattern_type: The type of the pattern (e.g., 'Unimodality', 'Trend', etc.), provided as a PatternType enum.
+        :param pattern_cache: A cache for the pattern, if available.
+        :param hds: A list of DataScopes to create the HDP from. If None, it will be created from the current DataScope.
+        :param temporal_dimensions: The temporal dimensions to extend the breakdown with. Expected as a list of strings. Only needed if hds is None.
+        :param measures: The measures to extend the measure with. Expected to be a dict {measure_column: aggregate_function}. Only needed if hds is None.
+        """
+        if hds is None or len(hds) == 0:
+            hds = self.data_scope.create_hds(temporal_dimensions=temporal_dimensions, measures=measures)
+        # All the data scopes in the HDS should have the same source_df, and it should be
+        # the same as the source_df of the current DataScope (otherwise, this pattern should not be
+        # the one producing the HDP with this HDS).
+        source_df = self.data_scope.source_df
+        if not all(ds.source_df == source_df for ds in hds):
+            raise ValueError("All DataScopes in the HDS must have the same source_df.")
+
+        # Append the existing cache if available
+        if pattern_cache is None:
+            pattern_cache = {}
+        pattern_cache.update(self.pattern_cache)
+
+        # Create the HDP
+        hdp = []
+        for ds in hds:
+            # Check pattern cache first
+            cache_key = (ds, pattern_type)
+            if cache_key in pattern_cache:
+                dp = pattern_cache[cache_key]
+            else:
+                # Evaluate the pattern if not in cache
+                dp = self.evaluate_pattern(ds, source_df, pattern_type)
+                pattern_cache[cache_key] = dp  # Store in cache
+
+            # Only add patterns that are not 'No Pattern' to the HDP for MetaInsight evaluation
+            if dp.type != PatternType.NONE:
+                hdp.append(dp)
+
+        self.pattern_cache = pattern_cache
+
+        return hdp, pattern_cache
+
+class HomogenousDataPattern:
+
+    """
+    A homogenous data pattern.
+    A list of data patterns induced by the same pattern type on a homogenous data scope.
+    """
+
+    def __init__(self, data_patterns: List[BasicDataPattern]):
+        """
+        Initialize the HomogenousDataPattern with the provided data patterns.
+
+        :param data_patterns: A list of BasicDataPattern objects.
+        """
+        self.data_patterns = data_patterns
+        self.source_df = data_patterns[0].data_scope.source_df if data_patterns else None
+
+    def __iter__(self):
+        """
+        Allows iteration over the data patterns.
+        """
+        return iter(self.data_patterns)
+
+    def __len__(self):
+        """
+        Returns the number of data patterns.
+        """
+        return len(self.data_patterns)
+
+    def __repr__(self):
+        return f"HomogenousDataPattern(#Patterns={len(self.data_patterns)})"
+
+    def __getitem__(self, item):
+        """
+        Allows indexing into the data patterns.
+        """
+        return self.data_patterns[item]

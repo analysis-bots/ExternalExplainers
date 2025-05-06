@@ -5,11 +5,13 @@ import math
 
 from external_explainers.metainsight_explainer.data_pattern import HomogenousDataPattern
 from external_explainers.metainsight_explainer.data_pattern import BasicDataPattern
+from external_explainers.metainsight_explainer.pattern_evaluations import PatternType
 
 COMMONNESS_THRESHOLD = 0.5
 BALANCE_PARAMETER = 1
 ACTIONABILITY_REGULARIZER_PARAM = 0.1
 EXCEPTION_CATEGORY_COUNT = 3
+
 
 class MetaInsight:
     """
@@ -39,7 +41,6 @@ class MetaInsight:
     def __repr__(self):
         return f"MetaInsight(score={self.score:.4f}, #HDP={len(self.hdp)}, #Commonness={len(self.commonness_set)}, #Exceptions={len(self.exceptions)})"
 
-
     @staticmethod
     def categorize_exceptions(commonness_set, exceptions):
         """
@@ -52,15 +53,15 @@ class MetaInsight:
         commonness_highlights = set()
         for commonness in commonness_set:
             if commonness:  # Ensure commonness is not empty
-                commonness_highlights.add(commonness[0].highlight)  # Assume all in commonness have same highlight
+                commonness_highlights.add(str(commonness[0].highlight))  # Assume all in commonness have same highlight
 
         for exc_dp in exceptions:
-            if exc_dp.type == 'Other Pattern':
+            if exc_dp.pattern_type == PatternType.OTHER:
                 categorized['Type-Change'].append(exc_dp)
-            elif exc_dp.type == 'No Pattern':
+            elif exc_dp.pattern_type == PatternType.NONE:
                 # This case should ideally not happen if generate_hdp filters 'No Pattern'
                 categorized['No-Pattern'].append(exc_dp)
-            elif exc_dp.highlight not in commonness_highlights:
+            elif str(exc_dp.highlight) not in commonness_highlights:
                 categorized['Highlight-Change'].append(exc_dp)
 
             # Keeping this commented out, since I couldn't figure out what to do with something in this catch-all category.
@@ -73,7 +74,7 @@ class MetaInsight:
         return categorized
 
     @staticmethod
-    def create_meta_insight(hdp: HomogenousDataPattern, commonness_threshold=COMMONNESS_THRESHOLD) -> 'MetaInsight' | None:
+    def create_meta_insight(hdp: HomogenousDataPattern, commonness_threshold=COMMONNESS_THRESHOLD) -> 'MetaInsight':
         """
         Evaluates the HDP and creates a MetaInsight object.
         :param hdp: A HomogenousDataPattern object.
@@ -163,17 +164,18 @@ class MetaInsight:
         S = -S
 
         # Compute S* (the upper bound of S)
-        threshold = ((1 - self.commonness_threshold) * math.e) / (math.pow(self.commonness_threshold, 1 / self.balance_parameter))
+        threshold = ((1 - self.commonness_threshold) * math.e) / (
+            math.pow(self.commonness_threshold, 1 / self.balance_parameter))
         if EXCEPTION_CATEGORY_COUNT > threshold:
             S_star = -math.log2(self.commonness_threshold) + (self.balance_parameter * EXCEPTION_CATEGORY_COUNT
-                                                        * math.pow(self.commonness_threshold, 1 / self.balance_parameter)
-                                                        * math.log2(math.e))
+                                                              * math.pow(self.commonness_threshold,
+                                                                         1 / self.balance_parameter)
+                                                              * math.log2(math.e))
         else:
             S_star = - self.commonness_threshold * math.log(self.commonness_threshold) - (
-                self.balance_parameter * (1 - self.commonness_threshold) * math.log2((1 - self.commonness_threshold) / EXCEPTION_CATEGORY_COUNT)
+                    self.balance_parameter * (1 - self.commonness_threshold) * math.log2(
+                (1 - self.commonness_threshold) / EXCEPTION_CATEGORY_COUNT)
             )
-
-
 
         indicator_value = 1 if len(exception_proportions) == 0 else 0
         conciseness = 1 - ((S + self.actionability_regularizer_param * indicator_value) / S_star)
@@ -181,7 +183,7 @@ class MetaInsight:
         # Ensure conciseness is within a reasonable range, e.g., [0, 1]
         return conciseness
 
-    def compute_score(self, impact_measure = None) -> float:
+    def compute_score(self, impact_measure=None) -> float:
         """
         Computes the score of the MetaInsight.
         The score is the multiple of the conciseness of the MetaInsight and the impact score of the HDS
@@ -190,10 +192,10 @@ class MetaInsight:
         :return: The score of the MetaInsight.
         """
         conciseness = self.calculate_conciseness()
-        hds_score = self.hdp.compute_impact(impact_measure=impact_measure)
+        # If the impact has already been computed, use it
+        hds_score = self.hdp.impact if self.hdp.impact != 0 else self.hdp.compute_impact(impact_measure=impact_measure)
         self.score = conciseness * hds_score
         return self.score
-
 
     def compute_pairwise_overlap_ratio(self, other: 'MetaInsight') -> float:
         """

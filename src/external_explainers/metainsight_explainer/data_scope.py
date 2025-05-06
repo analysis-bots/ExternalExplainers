@@ -1,6 +1,7 @@
 import pandas as pd
 from typing import Dict, List, Tuple
 
+
 class DataScope:
     """
     A data scope, as defined in the MetaInsight paper.
@@ -52,7 +53,7 @@ class DataScope:
                         new_ds.append(DataScope(self.source_df, new_subspace, self.breakdown, self.measure))
         return new_ds
 
-    def _measure_extend(self, measures: Dict[str,str]) -> List['DataScope']:
+    def _measure_extend(self, measures: Dict[str, str]) -> List['DataScope']:
         """
         Extends the measure of the DataScope while keeping the same breakdown and subspace.
 
@@ -61,8 +62,9 @@ class DataScope:
         """
         new_ds = []
         for measure_col, agg_func in measures.items():
-            if (measure_col, agg_func) != self.measure:
-                new_ds.append(DataScope(self.source_df, self.subspace, self.breakdown, (measure_col, agg_func)))
+            for func in agg_func:
+                if (measure_col, func) != self.measure:
+                    new_ds.append(DataScope(self.source_df, self.subspace, self.breakdown, (measure_col, agg_func)))
         return new_ds
 
     def _breakdown_extend(self, temporal_dimensions: List[str]) -> List['DataScope']:
@@ -81,7 +83,8 @@ class DataScope:
                 new_ds.append(DataScope(self.source_df, self.subspace, breakdown_dim, self.measure))
         return new_ds
 
-    def create_hds(self, temporal_dimensions: List[str] = None, measures: Dict[str, str] = None) -> 'HomogenousDataScope':
+    def create_hds(self, temporal_dimensions: List[str] = None,
+                   measures: Dict[str, str] = None) -> 'HomogenousDataScope':
         """
         Generates a Homogeneous Data Scope (HDS) from a base data scope, using subspace, measure and breakdown
         extensions as defined in the MetaInsight paper.
@@ -91,7 +94,7 @@ class DataScope:
 
         :return: A HDS in the form of a list of DataScope objects.
         """
-        hds = []
+        hds = [self]
         if temporal_dimensions is None:
             temporal_dimensions = []
         if measures is None:
@@ -173,6 +176,7 @@ class HomogenousDataScope:
         """
         self.data_scopes = data_scopes
         self.source_df = data_scopes[0].source_df if data_scopes else None
+        self.impact = 0
 
     def __iter__(self):
         """
@@ -195,6 +199,14 @@ class HomogenousDataScope:
     def __repr__(self):
         return f"HomogenousDataScope(#DataScopes={len(self.data_scopes)})"
 
+    def __lt__(self, other):
+        """
+        Less than comparison for sorting.
+        :param other: Another HomogenousDataScope object.
+        :return: True if this object is less than the other, False otherwise.
+        """
+        # We use the negative impact, since we want to use a max-heap but only have min-heap available
+        return - self.impact < - other.impact
 
     def compute_impact(self, impact_measure) -> float:
         """
@@ -202,8 +214,6 @@ class HomogenousDataScope:
         :param impact_measure:
         :return: The total impact of the HDS.
         """
-        impact = 0
-        total_impact = 0
         if len(self.data_scopes) > 0:
             impact, total_impact = self.data_scopes[0].compute_impact(impact_measure)
         else:
@@ -211,4 +221,5 @@ class HomogenousDataScope:
         for ds in self.data_scopes[1:]:
             ds_impact, _ = ds.compute_impact(impact_measure, total_impact)
             impact += ds_impact
+        self.impact = impact
         return impact

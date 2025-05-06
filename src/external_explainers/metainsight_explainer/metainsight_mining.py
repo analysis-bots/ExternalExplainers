@@ -1,22 +1,27 @@
 import itertools
-from typing import List
+from typing import List, Dict, Tuple
 import numpy as np
+from queue import PriorityQueue
 
+import pandas as pd
+
+from external_explainers.metainsight_explainer.data_pattern import BasicDataPattern
 from external_explainers.metainsight_explainer.meta_insight import (MetaInsight,
                                                                     ACTIONABILITY_REGULARIZER_PARAM,
                                                                     BALANCE_PARAMETER,
                                                                     COMMONNESS_THRESHOLD)
+from external_explainers.metainsight_explainer.data_scope import DataScope
+from external_explainers.metainsight_explainer.pattern_evaluations import PatternType
 
-MIN_SCORE = 0.01
+MIN_IMPACT = 0.01
+
 
 class MetaInsightMiner:
-
-
-
     """
     This class is responsible for the actual process of mining MetaInsights.
     """
-    def __init__(self, k=5, min_score=MIN_SCORE, min_commonness=COMMONNESS_THRESHOLD, balance_factor=BALANCE_PARAMETER,
+
+    def __init__(self, k=5, min_score=MIN_IMPACT, min_commonness=COMMONNESS_THRESHOLD, balance_factor=BALANCE_PARAMETER,
                  actionability_regularizer=ACTIONABILITY_REGULARIZER_PARAM):
         """
         Initialize the MetaInsightMiner with the provided parameters.
@@ -39,11 +44,10 @@ class MetaInsightMiner:
         :param metainsight_candidates: A list of MetaInsights to rank.
         :return: A list of the top k MetaInsights.
         """
-        # Sort candidates by score initially (descending)
-        sorted_candidates = sorted(metainsight_candidates, key=lambda mi: mi.score, reverse=True)
 
         selected_metainsights = []
-        candidate_set = set(sorted_candidates)
+        # Sort candidates by score initially (descending)
+        candidate_set = sorted(list(set(metainsight_candidates)), key=lambda mi: mi.score, reverse=True)
 
         # Greedy selection of MetaInsights.
         # We compute the total use of the currently selected MetaInsights, then how much a candidate would add to that.
@@ -52,11 +56,13 @@ class MetaInsightMiner:
             best_candidate = None
             max_gain = -np.inf
 
-            for candidate in candidate_set:
-                total_use_approx = sum(mi.score for mi in selected_metainsights) - \
-                                      sum(mi1.compute_pairwise_overlap_score(mi2) for mi1, mi2 in itertools.combinations(metainsight_candidates, 2))
+            total_use_approx = sum(mi.score for mi in selected_metainsights) - \
+                               sum(mi1.compute_pairwise_overlap_score(mi2) for mi1, mi2 in
+                                   itertools.combinations(selected_metainsights, 2))
 
-                total_use_with_candidate = total_use_approx + (candidate.score - sum(mi.compute_pairwise_overlap_score(candidate) for mi in selected_metainsights))
+            for candidate in candidate_set:
+                total_use_with_candidate = total_use_approx + (candidate.score - sum(
+                    mi.compute_pairwise_overlap_score(candidate) for mi in selected_metainsights))
 
                 gain = total_use_with_candidate - total_use_approx
 
@@ -72,3 +78,120 @@ class MetaInsightMiner:
                 break
 
         return selected_metainsights
+
+    def mine_metainsights(self, source_df: pd.DataFrame,
+                          dimensions: List[str],
+                          measures: Dict[str, str],
+                          impact_measure: Tuple[str, str]) -> List[MetaInsight]:
+        """
+        The main function to mine MetaInsights.
+        Mines metainsights from the given data frame based on the provided dimensions, measures, and impact measure.
+        :param source_df:
+        :param dimensions:
+        :param measures:
+        :param impact_measure:
+        :return:
+        """
+        metainsight_candidates = []
+        query_cache = {}
+        pattern_cache = {}
+        hdp_queue = PriorityQueue()
+
+        # Example: Generate data scopes with one dimension as breakdown, all '*' subspace
+        base_data_scopes = []
+        for breakdown_dim in dimensions:
+            for measure_col, agg_func in measures.items():
+                base_data_scopes.append(
+                    DataScope(source_df, {}, breakdown_dim, (measure_col, agg_func)))
+
+        # Example: Generate data scopes with one filter in subspace and one breakdown
+        for filter_dim in dimensions:
+            unique_values = source_df[filter_dim].dropna().unique()
+            for value in unique_values:
+                for breakdown_dim in dimensions:
+                    if breakdown_dim != filter_dim:  # Breakdown should be different from filter dim
+                        for measure_col, agg_func in measures.items():
+                            base_data_scopes.append(
+                                DataScope(source_df, {filter_dim: value}, breakdown_dim, (measure_col, agg_func)))
+
+        print(f"Generated {len(base_data_scopes)} potential base data scopes.")
+
+        # --- Pattern-Guided HDS Generation and Evaluation ---
+        # For each base data scope, evaluate basic patterns and generate HDSs
+
+        for base_ds in base_data_scopes:
+            # Evaluate basic patterns for the base data scope for selected types
+            for pattern_type in PatternType:
+                if pattern_type == PatternType.OTHER or pattern_type == PatternType.NONE:
+                    continue
+                base_dp = BasicDataPattern.evaluate_pattern(base_ds, source_df, pattern_type)
+
+                if base_dp.pattern_type not in [PatternType.NONE, PatternType.OTHER]:
+                    # If a valid basic pattern is found, extend the data scope to generate HDS
+                    hdp, pattern_cache = base_dp.create_hdp(temporal_dimensions=dimensions, measures=measures,
+                                                            pattern_type=pattern_type, pattern_cache=pattern_cache)
+
+                    # Pruning 2: Discard HDS with extremely low impact
+                    hds_impact = hdp.compute_impact(impact_measure)
+                    if hds_impact < MIN_IMPACT:
+                        # print(f"Pruning HDS for {base_ds} due to low impact ({hds_impact:.4f})")
+                        continue
+
+                    # Add HDS to a queue for evaluation
+                    hdp_queue.put((hdp, pattern_type))
+
+        # --- Evaluate HDSs to find MetaInsights ---
+        # Process HDSs from the queue (simulating priority queue by just processing in order)
+
+        processed_hdp_count = 0
+        while not hdp_queue.empty():  # and time_elapsed < time_budget: # Add time budget check
+            hdp, pattern_type = hdp_queue.get()
+            processed_hdp_count += 1
+            # print(f"Processing HDS {processed_hds_count}/{len(hds_queue) + processed_hds_count} for pattern '{pattern_type}'")
+
+            # Evaluate HDP to find MetaInsight
+            metainsight = MetaInsight.create_meta_insight(hdp, commonness_threshold=self.min_commonness)
+
+            if metainsight:
+                # Calculate and assign the score
+                metainsight.compute_score()
+                metainsight_candidates.append(metainsight)
+                # print(f"Found MetaInsight with score: {metainsight.score:.4f}")
+
+        return self.rank_metainsights(metainsight_candidates)
+
+
+if __name__ == "__main__":
+    # Create a sample Pandas DataFrame (similar to the paper's example)
+    df = pd.read_csv("C:\\Users\\Yuval\\PycharmProjects\\pd-explain\\Examples\\Datasets\\adult.csv")
+
+    # Define dimensions, measures, and impact measure
+    dimensions = ['workclass', 'education']
+    measures = {
+        "capital-gain": ["mean"],
+        "capital-loss": ["mean"],
+    }
+    impact_measure = ('capital-gain', 'mean')  # Using total sales as impact
+
+    # Run the mining process
+    miner = MetaInsightMiner(k=5, min_score=0.01, min_commonness=0.5)
+    top_metainsights = miner.mine_metainsights(
+        df,
+        dimensions,
+        measures,
+        impact_measure,
+    )
+
+    print("\n--- Top MetaInsights ---")
+    if top_metainsights:
+        for i, mi in enumerate(top_metainsights):
+            print(f"Rank {i + 1}: {mi}")
+            # You can further print details about commonness and exceptions if needed
+            # print("  Commonness:")
+            # for c in mi.commonness_set:
+            #     print(f"    - {len(c)} patterns, Type: {c[0].type}, Highlight: {c[0].highlight}")
+            # print("  Exceptions:")
+            # for e in mi.exceptions:
+            #      print(f"    - {e}")
+    else:
+        print("No MetaInsights found.")

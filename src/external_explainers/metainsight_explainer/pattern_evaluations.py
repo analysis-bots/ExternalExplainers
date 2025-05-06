@@ -7,6 +7,7 @@ from scipy.stats import gaussian_kde, zscore
 from sklearn.linear_model import LinearRegression
 from sklearn.cluster import DBSCAN
 
+
 class PatternType(Enum):
     """
     An enumeration of the types of patterns.
@@ -16,6 +17,7 @@ class PatternType(Enum):
     UNIMODALITY = 2
     TREND = 3
     OUTLIER = 4
+
 
 class PatternEvaluator:
     """
@@ -38,30 +40,49 @@ class PatternEvaluator:
         if not is_unimodal:
             return False, (None, None)
         # If there is unimodality, find the valley / peak
-        # 2. Perform Kernel Density Estimation
-        kde = gaussian_kde(series)
+        # If a series is all 0s, then this can happen
+        try:
+            kde = gaussian_kde(series)
+        except np.linalg.LinAlgError:
+            return False, (None, None)
 
-        # 3. Evaluate the KDE over a range of values
+        # Evaluate the KDE over a range of values
         # Create a range of points covering the data span
         x_range = np.linspace(series.min(), series.max(), 1000)
         density_values = kde(x_range)
 
-        # 4. Find the index of the maximum (peak) and minimum (valley) density
+        # Find the index of the maximum (peak) and minimum (valley) density
         peak_index = np.argmax(density_values)
         valley_index = np.argmin(density_values)
 
-        # 5. Map indices back to data values to get the estimated locations
+        # Get the location of the peak / valley
         peak_location = x_range[peak_index]
         valley_location = x_range[valley_index]
+
+        # Get the index from the real series for which the peak and valley occurr.
+        # Because we are approximating, we get the index for which the values are the closest.
+        peak_dist = np.inf
+        valley_dist = np.inf
+        valley_index = None
+        peak_index = None
+        for idx in series.index.tolist():
+            val = series[idx]
+            val_peak_dist = abs(val - peak_location)
+            val_valley_dist = abs(val - valley_location)
+            if val_peak_dist < peak_dist:
+                peak_index = idx
+                peak_dist = val_peak_dist
+            if val_valley_dist < valley_dist:
+                valley_index = idx
+                valley_dist = val_valley_dist
+
 
         # Check which of the two is the bigger outlier, and return the one that is
         # furthest from the mean
         if abs(peak_location - series.mean()) > abs(valley_location - series.mean()):
-            return True, (peak_location, 'Peak')
+            return True, (peak_index, 'Peak')
         else:
-            return True, (valley_location, 'Valley')
-
-
+            return True, (valley_index, 'Valley')
 
     @staticmethod
     def trend(series: pd.Series) -> (bool, Tuple[str, str]):
@@ -72,6 +93,21 @@ class PatternEvaluator:
             Highlight is (slope, 'Upward' or 'Downward').
             """
         if len(series) < 2:
+            return False, (None, None)
+
+        # Check if the series is a time series, or just a series of numbers
+        # We say a series is a time series if its index is either a datetime index or an increasing integer index
+        is_datetime_index = isinstance(series.index, pd.DatetimeIndex)
+        is_numeric_index = np.issubdtype(series.index.dtype, np.number)
+        if is_numeric_index:
+            series = series.sort_index()
+            # Check if the index is strictly increasing
+            is_increasing = np.all(np.diff(series.index) > 0)
+        else:
+            is_increasing = False
+
+        # We can't find trends in series that are not time series -
+        if not is_datetime_index and not is_increasing:
             return False, (None, None)
 
         # Create a simple linear model
@@ -85,7 +121,7 @@ class PatternEvaluator:
         # Check if the slope is significant
         if abs(slope) > PatternEvaluator.TREND_SLOPE_THRESHOLD:
             trend_direction = 'Upward' if slope > 0 else 'Downward'
-            return True, (slope, trend_direction)
+            return True, (None, trend_direction)
         else:
             return False, (None, None)
 
@@ -107,7 +143,8 @@ class PatternEvaluator:
         outlier_indices = np.where(z_scores > PatternEvaluator.OUTLIER_ZSCORE_THRESHOLD)[0]
 
         if len(outlier_indices) > 0:
-            outlier_data_points = series[outlier_indices].values.tolist()
+            outlier_data_points = series.iloc[outlier_indices].values.tolist()
+            outlier_index = series.index[outlier_indices].tolist()
             # If there are multiple outliers, use clustering and return the cluster means.
             # This is more informative and easier to interpret than a list of raw outlier values.
             if len(outlier_data_points) > 1:
@@ -116,11 +153,16 @@ class PatternEvaluator:
                 # Perform clustering
                 clustered = DBSCAN().fit_predict(outlier_data_points)
                 cluster_means = []
+                cluster_indexes = []
                 for cluster in np.unique(clustered):
                     if cluster != -1:
                         cluster_points = outlier_data_points[clustered == cluster]
                         cluster_mean = np.mean(cluster_points)
                         cluster_means.append(cluster_mean)
+                        # Take the most common index of the cluster points to represent the cluster
+                        cluster_index = outlier_index[clustered == cluster]
+                        cluster_index = pd.Series(cluster_index).mode()[0]
+                        cluster_indexes.append(cluster_index)
                 # If there are noise points, they will be labeled as -1 in DBSCAN. To us though, those are
                 # not noise points, but outliers. So we will return them as well (unlike the clustered points,
                 # their mean may be meaningless because they might be very far apart.
@@ -129,9 +171,9 @@ class PatternEvaluator:
                     noise_points = noise_points.flatten().tolist()
                     cluster_means.extend(noise_points)
                 # Return the cluster centers as the highlight meaning "outliers around these values"
-                return True, (cluster_means, None)
+                return True, (cluster_indexes, None)
 
-            return True, (outlier_data_points, None)
+            return True, ([outlier_index[0]], None)
         else:
             return False, (None, None)
 

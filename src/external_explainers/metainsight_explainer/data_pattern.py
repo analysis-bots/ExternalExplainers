@@ -4,6 +4,7 @@ from typing import Dict, List, Tuple
 from external_explainers.metainsight_explainer.data_scope import DataScope, HomogenousDataScope
 from external_explainers.metainsight_explainer.pattern_evaluations import PatternEvaluator, PatternType
 
+
 class BasicDataPattern:
     """
     A data pattern, as defined in the MetaInsight paper.
@@ -30,7 +31,6 @@ class BasicDataPattern:
             self.highlight == other.highlight and \
             self.data_scope == other.data_scope
 
-
     def sim(self, other) -> bool:
         """
         Computes the similarity between two BasicDataPattern objects.
@@ -46,10 +46,15 @@ class BasicDataPattern:
         # has it but the other doesn't, the equality will be false anyway. If they both have it, then
         # the equality conditions will be true but the inequality conditions will be false.
         return self.pattern_type == other.pattern_type and self.highlight == other.highlight and \
-               self.pattern_type != PatternType.NONE and self.pattern_type != PatternType.OTHER
+            self.pattern_type != PatternType.NONE and self.pattern_type != PatternType.OTHER
 
     def __hash__(self):
-        return hash((self.data_scope, self.pattern_type, self.highlight))
+        data_scope_str = "".join([f"{k}: {v}" for k, v in self.data_scope.subspace.items()])
+        highlight_string = ""
+        if self.highlight:
+            for h in self.highlight:
+                highlight_string += f"{h} "
+        return hash((data_scope_str, self.pattern_type, highlight_string))
 
     def __repr__(self):
         return f"BasicDataPattern(ds={self.data_scope}, type='{self.pattern_type}', highlight={self.highlight})"
@@ -97,6 +102,8 @@ class BasicDataPattern:
         else:
             # Check for other pattern types
             for other_type in PatternType:
+                if other_type == PatternType.OTHER or other_type == PatternType.NONE:
+                    continue
                 if other_type != pattern_type:
                     other_is_valid, _ = pattern_evaluator(aggregated_series, other_type)
                     if other_is_valid:
@@ -107,7 +114,7 @@ class BasicDataPattern:
 
     def create_hdp(self, pattern_type: PatternType, pattern_cache: Dict = None,
                    hds: List[DataScope] = None, temporal_dimensions: List[str] = None,
-                   measures: Dict[str,str] = None) -> Tuple[List['BasicDataPattern'], Dict]:
+                   measures: Dict[str, str] = None) -> Tuple['HomogenousDataPattern', Dict]:
         """
         Generates a Homogenous Data Pattern (HDP) either from a given HDS or from the current DataScope.
 
@@ -123,8 +130,6 @@ class BasicDataPattern:
         # the same as the source_df of the current DataScope (otherwise, this pattern should not be
         # the one producing the HDP with this HDS).
         source_df = self.data_scope.source_df
-        if not all(ds.source_df == source_df for ds in hds):
-            raise ValueError("All DataScopes in the HDS must have the same source_df.")
 
         # Append the existing cache if available
         if pattern_cache is None:
@@ -134,25 +139,31 @@ class BasicDataPattern:
         # Create the HDP
         hdp = []
         for ds in hds:
-            # Check pattern cache first
-            cache_key = (ds, pattern_type)
-            if cache_key in pattern_cache:
-                dp = pattern_cache[cache_key]
-            else:
-                # Evaluate the pattern if not in cache
-                dp = self.evaluate_pattern(ds, source_df, pattern_type)
-                pattern_cache[cache_key] = dp  # Store in cache
+            if ds != self.data_scope:
+                # Check pattern cache first
+                cache_key = (ds, pattern_type)
+                if cache_key in pattern_cache:
+                    dp = pattern_cache[cache_key]
+                else:
+                    # Evaluate the pattern if not in cache
+                    dp = self.evaluate_pattern(ds, source_df, pattern_type)
+                    pattern_cache[cache_key] = dp  # Store in cache
 
-            # Only add patterns that are not 'No Pattern' to the HDP for MetaInsight evaluation
-            if dp.type != PatternType.NONE:
-                hdp.append(dp)
+                # Only add patterns that are not 'No Pattern' to the HDP for MetaInsight evaluation
+                if dp.pattern_type != PatternType.NONE:
+                    hdp.append(dp)
 
         self.pattern_cache = pattern_cache
 
+        if self.pattern_type != PatternType.NONE:
+            # Add the current pattern to the HDP
+            hdp.append(self)
+        hdp = HomogenousDataPattern(hdp)
+
         return hdp, pattern_cache
 
-class HomogenousDataPattern(HomogenousDataScope):
 
+class HomogenousDataPattern(HomogenousDataScope):
     """
     A homogenous data pattern.
     A list of data patterns induced by the same pattern type on a homogenous data scope.

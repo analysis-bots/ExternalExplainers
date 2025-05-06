@@ -108,6 +108,55 @@ class DataScope:
 
         return HomogenousDataScope(hds)
 
+    def compute_impact(self, impact_measure: Tuple = None, precomputed_total_impact: float = None) -> Tuple[
+        float, float]:
+        """
+        Computes the impact of the data scope based on the provided impact measure.
+        Impact is defined as the ratio of the measure in the current data scope to the total measure in the source DataFrame.
+
+        :param impact_measure: A tuple representing the impact measure. Optional. If not provided, the data scope's
+        measure will be used.
+        :param precomputed_total_impact: A precomputed total impact value. Optional. If provided, it will be used instead of
+        computing the total impact again. Used for performance optimization.
+        :return: The computed impact.
+        """
+        if impact_measure is None:
+            impact_measure = self.measure
+        impact_col, agg_func = impact_measure
+        if impact_col not in self.source_df.columns:
+            raise ValueError(f"Impact column '{impact_col}' not found in source DataFrame.")
+
+        total_impact = precomputed_total_impact
+        # If we are not using a precomputed total impact, compute it
+        if precomputed_total_impact is None:
+            try:
+                total_impact = self.source_df[impact_col].agg(agg_func)
+            except Exception as e:
+                print(f"Error during aggregation for {self}: {e}")
+                return 0, 0
+
+        # Avoid division by zero
+        if total_impact == 0:
+            return 0, 0
+
+        # Compute the impact for the current data scope
+        filtered_df = self.source_df
+        for dim, value in self.subspace.items():
+            if value != '*':
+                filtered_df = filtered_df[filtered_df[dim] == value]
+
+        if impact_col not in filtered_df.columns:
+            return 0, total_impact
+        else:
+            # Perform the aggregation
+            try:
+                impact = filtered_df[impact_col].agg(agg_func)
+                impact = impact / total_impact
+                return impact, total_impact
+            except Exception as e:
+                print(f"Error during aggregation for {self}: {e}")
+                return 0, total_impact
+
 
 class HomogenousDataScope:
     """
@@ -145,3 +194,21 @@ class HomogenousDataScope:
 
     def __repr__(self):
         return f"HomogenousDataScope(#DataScopes={len(self.data_scopes)})"
+
+
+    def compute_impact(self, impact_measure) -> float:
+        """
+        Computes the impact of the HDS. This is the sum of the impacts of all data scopes in the HDS.
+        :param impact_measure:
+        :return: The total impact of the HDS.
+        """
+        impact = 0
+        total_impact = 0
+        if len(self.data_scopes) > 0:
+            impact, total_impact = self.data_scopes[0].compute_impact(impact_measure)
+        else:
+            return 0
+        for ds in self.data_scopes[1:]:
+            ds_impact, _ = ds.compute_impact(impact_measure, total_impact)
+            impact += ds_impact
+        return impact

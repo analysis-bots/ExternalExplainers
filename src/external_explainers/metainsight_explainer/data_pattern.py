@@ -151,7 +151,7 @@ class BasicDataPattern:
 
         return hdp, pattern_cache
 
-class HomogenousDataPattern:
+class HomogenousDataPattern(HomogenousDataScope):
 
     """
     A homogenous data pattern.
@@ -164,8 +164,10 @@ class HomogenousDataPattern:
 
         :param data_patterns: A list of BasicDataPattern objects.
         """
+        if not data_patterns:
+            raise ValueError("data_patterns cannot be empty.")
+        super(HomogenousDataPattern, self).__init__([dp.data_scope for dp in data_patterns])
         self.data_patterns = data_patterns
-        self.source_df = data_patterns[0].data_scope.source_df if data_patterns else None
 
     def __iter__(self):
         """

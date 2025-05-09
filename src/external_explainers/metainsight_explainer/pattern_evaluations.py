@@ -6,6 +6,7 @@ from diptest import diptest
 from scipy.stats import gaussian_kde, zscore
 from sklearn.linear_model import LinearRegression
 from sklearn.cluster import DBSCAN
+from external_explainers.metainsight_explainer.patterns import UnimodalityPattern
 
 
 class PatternType(Enum):
@@ -28,68 +29,47 @@ class PatternEvaluator:
     TREND_SLOPE_THRESHOLD = 0.01  # Minimum absolute slope for trend detection
 
     @staticmethod
-    def unimodality(series: pd.Series) -> (bool, Tuple[str, str]):
+    def unimodality(series: pd.Series) -> (bool, UnimodalityPattern | None):
         """
         Evaluates if the series is unimodal using Hartigan's Dip test and returns the highlight.
         :param series: The series to evaluate.
         :return: (is_unimodal, highlight)
         """
         if isinstance(series, pd.Series):
-            series = series.sort_values()
+            series = series.sort_index()
         else:
-            return False, (None, None)
+            return False, None
         vals = series.values
         if len(vals) < 4:
-            return False, (None, None)
+            return False, None
         # Perform Hartigan's Dip test
         dip_statistic, p_value = diptest(vals)
         is_unimodal = p_value > 0.05
         if not is_unimodal:
-            return False, (None, None)
+            return False, None
         # If there is unimodality, find the valley / peak
-        # If a series is all 0s, then this can happen
-        try:
-            kde = gaussian_kde(series)
-        except np.linalg.LinAlgError:
-            return False, (None, None)
-
-        # Evaluate the KDE over a range of values
-        # Create a range of points covering the data span
-        x_range = np.linspace(series.min(), series.max(), 1000)
-        density_values = kde(x_range)
-
-        # Find the index of the maximum (peak) and minimum (valley) density
-        peak_index = np.argmax(density_values)
-        valley_index = np.argmin(density_values)
-
-        # Get the location of the peak / valley
-        peak_location = x_range[peak_index]
-        valley_location = x_range[valley_index]
-
-        # Get the index from the real series for which the peak and valley occurr.
-        # Because we are approximating, we get the index for which the values are the closest.
-        peak_dist = np.inf
-        valley_dist = np.inf
-        valley_index = None
-        peak_index = None
-        for idx in series.index.tolist():
-            val = series[idx]
-            val_peak_dist = abs(val - peak_location)
-            val_valley_dist = abs(val - valley_location)
-            if val_peak_dist < peak_dist:
-                peak_index = idx
-                peak_dist = val_peak_dist
-            if val_valley_dist < valley_dist:
-                valley_index = idx
-                valley_dist = val_valley_dist
-
-
-        # Check which of the two is the bigger outlier, and return the one that is
-        # furthest from the mean
-        if abs(peak_location - series.mean()) > abs(valley_location - series.mean()):
-            return True, (peak_index, 'Peak')
+        max_value = series.max()
+        min_value = series.min()
+        # Check to make sure either the max or min happens only once, and is not at the start or end of the series
+        peaks = series[series == max_value]
+        valleys = series[series == min_value]
+        if len(peaks) > 1 and len(valleys) > 1:
+            return False, None
+        max_value_index = peaks.index[0] if len(peaks) == 1 else None
+        min_value_index = valleys.index[0] if len(valleys) == 1 else None
+        # If both are at the edges, we can't use them
+        if (max_value_index is not None and (max_value_index == series.index[0] or max_value_index == series.index[-1])) or \
+                (min_value_index is not None and (min_value_index == series.index[0] or min_value_index == series.index[-1])):
+            return False, None
+        index_name = series.index.name
+        if max_value_index:
+            return True, UnimodalityPattern(series, 'Peak', max_value_index, index_name=index_name)
+        elif min_value_index:
+            return True, UnimodalityPattern(series, 'Valley', min_value_index, index_name=index_name)
         else:
-            return True, (valley_index, 'Valley')
+            return False, None
+
+
 
     @staticmethod
     def trend(series: pd.Series) -> (bool, Tuple[str, str]):

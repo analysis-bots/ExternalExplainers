@@ -4,8 +4,9 @@ import numpy as np
 from queue import PriorityQueue
 
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor
 
-from external_explainers.metainsight_explainer.data_pattern import BasicDataPattern
+from external_explainers.metainsight_explainer.data_pattern import BasicDataPattern, HomogenousDataPattern
 from external_explainers.metainsight_explainer.meta_insight import (MetaInsight,
                                                                     ACTIONABILITY_REGULARIZER_PARAM,
                                                                     BALANCE_PARAMETER,
@@ -79,10 +80,34 @@ class MetaInsightMiner:
 
         return selected_metainsights
 
+
+    def _create_hdp(self, base_ds: DataScope, source_df: pd.DataFrame,
+                    dimensions: List[str], measures: Dict[str, str],
+                    pattern_cache: Dict[Tuple[DataScope, PatternType], BasicDataPattern]) -> List[HomogenousDataPattern]:
+        hdps = []
+        for pattern_type in PatternType:
+            if pattern_type == PatternType.OTHER or pattern_type == PatternType.NONE:
+                continue
+            base_dp = BasicDataPattern.evaluate_pattern(base_ds, source_df, pattern_type)
+
+            if base_dp.pattern_type not in [PatternType.NONE, PatternType.OTHER]:
+                # If a valid basic pattern is found, extend the data scope to generate HDS
+                hdp, _ = base_dp.create_hdp(temporal_dimensions=dimensions, measures=measures,
+                                                        pattern_type=pattern_type, pattern_cache=pattern_cache)
+
+
+                # Pruning: Discard HDS with extremely low impact
+                hds_impact = hdp.compute_impact()
+                if hds_impact < MIN_IMPACT:
+                    # print(f"Pruning HDS for {base_ds} due to low impact ({hds_impact:.4f})")
+                    continue
+
+
+        return hdps
+
     def mine_metainsights(self, source_df: pd.DataFrame,
                           dimensions: List[str],
-                          measures: Dict[str, str],
-                          impact_measure: Tuple[str, str]) -> List[MetaInsight]:
+                          measures: List[Tuple[str,str]]) -> List[MetaInsight]:
         """
         The main function to mine MetaInsights.
         Mines metainsights from the given data frame based on the provided dimensions, measures, and impact measure.
@@ -100,7 +125,7 @@ class MetaInsightMiner:
         # Example: Generate data scopes with one dimension as breakdown, all '*' subspace
         base_data_scopes = []
         for breakdown_dim in dimensions:
-            for measure_col, agg_func in measures.items():
+            for measure_col, agg_func in measures:
                 base_data_scopes.append(
                     DataScope(source_df, {}, breakdown_dim, (measure_col, agg_func)))
 
@@ -110,7 +135,7 @@ class MetaInsightMiner:
             for value in unique_values:
                 for breakdown_dim in dimensions:
                     if breakdown_dim != filter_dim:  # Breakdown should be different from filter dim
-                        for measure_col, agg_func in measures.items():
+                        for measure_col, agg_func in measures:
                             base_data_scopes.append(
                                 DataScope(source_df, {filter_dim: value}, breakdown_dim, (measure_col, agg_func)))
 
@@ -131,8 +156,12 @@ class MetaInsightMiner:
                     hdp, pattern_cache = base_dp.create_hdp(temporal_dimensions=dimensions, measures=measures,
                                                             pattern_type=pattern_type, pattern_cache=pattern_cache)
 
+                    # Pruning 1 - if the HDP is unlikely to form a commonness, discard it
+                    if len(hdp) < len(hdp.data_scopes) * self.min_commonness:
+                        continue
+
                     # Pruning 2: Discard HDS with extremely low impact
-                    hds_impact = hdp.compute_impact(impact_measure)
+                    hds_impact = hdp.compute_impact()
                     if hds_impact < MIN_IMPACT:
                         # print(f"Pruning HDS for {base_ds} due to low impact ({hds_impact:.4f})")
                         continue
@@ -156,7 +185,6 @@ class MetaInsightMiner:
                 # Calculate and assign the score
                 metainsight.compute_score()
                 metainsight_candidates.append(metainsight)
-                # print(f"Found MetaInsight with score: {metainsight.score:.4f}")
 
         return self.rank_metainsights(metainsight_candidates)
 
@@ -164,14 +192,11 @@ class MetaInsightMiner:
 if __name__ == "__main__":
     # Create a sample Pandas DataFrame (similar to the paper's example)
     df = pd.read_csv("C:\\Users\\Yuval\\PycharmProjects\\pd-explain\\Examples\\Datasets\\adult.csv")
+    df = df.sample(5000, random_state=42)  # Sample 5000 rows for testing
 
     # Define dimensions, measures, and impact measure
     dimensions = ['workclass', 'education']
-    measures = {
-        "capital-gain": ["mean"],
-        "capital-loss": ["mean"],
-    }
-    impact_measure = ('capital-gain', 'mean')  # Using total sales as impact
+    measures = [('age', 'mean'), ('capital-gain', 'mean'), ('capital-loss', 'mean')]
 
     # Run the mining process
     miner = MetaInsightMiner(k=5, min_score=0.01, min_commonness=0.5)
@@ -179,7 +204,6 @@ if __name__ == "__main__":
         df,
         dimensions,
         measures,
-        impact_measure,
     )
 
     print("\n--- Top MetaInsights ---")

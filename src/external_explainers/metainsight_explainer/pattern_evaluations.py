@@ -34,8 +34,15 @@ class PatternEvaluator:
         :param series: The series to evaluate.
         :return: (is_unimodal, highlight)
         """
+        if isinstance(series, pd.Series):
+            series = series.sort_values()
+        else:
+            return False, (None, None)
+        vals = series.values
+        if len(vals) < 4:
+            return False, (None, None)
         # Perform Hartigan's Dip test
-        dip_statistic, p_value = diptest(series.dropna().values)
+        dip_statistic, p_value = diptest(vals)
         is_unimodal = p_value > 0.05
         if not is_unimodal:
             return False, (None, None)

@@ -1,5 +1,8 @@
 import pandas as pd
 from typing import Dict, List, Tuple
+from scipy.special import kl_div
+from concurrent.futures import ThreadPoolExecutor
+import time
 
 
 class DataScope:
@@ -53,7 +56,7 @@ class DataScope:
                         new_ds.append(DataScope(self.source_df, new_subspace, self.breakdown, self.measure))
         return new_ds
 
-    def _measure_extend(self, measures: Dict[str, str]) -> List['DataScope']:
+    def _measure_extend(self, measures: List[Tuple[str, str]]) -> List['DataScope']:
         """
         Extends the measure of the DataScope while keeping the same breakdown and subspace.
 
@@ -61,10 +64,9 @@ class DataScope:
         :return: A list of new DataScope objects with the extended measure.
         """
         new_ds = []
-        for measure_col, agg_func in measures.items():
-            for func in agg_func:
-                if (measure_col, func) != self.measure:
-                    new_ds.append(DataScope(self.source_df, self.subspace, self.breakdown, (measure_col, agg_func)))
+        for measure_col, agg_func in measures:
+            if (measure_col, agg_func) != self.measure:
+                new_ds.append(DataScope(self.source_df, self.subspace, self.breakdown, (measure_col, agg_func)))
         return new_ds
 
     def _breakdown_extend(self, temporal_dimensions: List[str]) -> List['DataScope']:
@@ -84,7 +86,7 @@ class DataScope:
         return new_ds
 
     def create_hds(self, temporal_dimensions: List[str] = None,
-                   measures: Dict[str, str] = None) -> 'HomogenousDataScope':
+                   measures: List[Tuple[str,str]] = None) -> 'HomogenousDataScope':
         """
         Generates a Homogeneous Data Scope (HDS) from a base data scope, using subspace, measure and breakdown
         extensions as defined in the MetaInsight paper.
@@ -111,54 +113,53 @@ class DataScope:
 
         return HomogenousDataScope(hds)
 
-    def compute_impact(self, impact_measure: Tuple = None, precomputed_total_impact: float = None) -> Tuple[
-        float, float]:
+    def compute_impact(self, precomputed_source_df: pd.DataFrame = None) -> float:
         """
         Computes the impact of the data scope based on the provided impact measure.
-        Impact is defined as the ratio of the measure in the current data scope to the total measure in the source DataFrame.
-
-        :param impact_measure: A tuple representing the impact measure. Optional. If not provided, the data scope's
-        measure will be used.
-        :param precomputed_total_impact: A precomputed total impact value. Optional. If provided, it will be used instead of
-        computing the total impact again. Used for performance optimization.
-        :return: The computed impact.
+        We define impact as the proportion of rows between the data scope and the total date scope, multiplied
+        by their KL divergence.
         """
-        if impact_measure is None:
-            impact_measure = self.measure
-        impact_col, agg_func = impact_measure
+        if len(self.subspace) == 0:
+            # No subspace, no impact
+            return 0
+        # Use the provided impact measure or default to the data scope's measure
+        impact_col, agg_func = self.measure
         if impact_col not in self.source_df.columns:
             raise ValueError(f"Impact column '{impact_col}' not found in source DataFrame.")
 
-        total_impact = precomputed_total_impact
-        # If we are not using a precomputed total impact, compute it
-        if precomputed_total_impact is None:
-            try:
-                total_impact = self.source_df[impact_col].agg(agg_func)
-            except Exception as e:
-                print(f"Error during aggregation for {self}: {e}")
-                return 0, 0
-
-        # Avoid division by zero
-        if total_impact == 0:
-            return 0, 0
-
-        # Compute the impact for the current data scope
-        filtered_df = self.source_df
+        # Perform subspace filtering
+        filtered_df = self.source_df.copy()
         for dim, value in self.subspace.items():
             if value != '*':
                 filtered_df = filtered_df[filtered_df[dim] == value]
-
+        # Group by breakdown dimension and aggregate measure
+        if self.breakdown not in filtered_df.columns:
+            # Cannot group by breakdown if it's not in the filtered data
+            return 0
         if impact_col not in filtered_df.columns:
-            return 0, total_impact
-        else:
+            # Cannot aggregate if measure column is not in the data
+            return 0
+        try:
+            numeric_columns = filtered_df.select_dtypes(include=['number']).columns.tolist()
             # Perform the aggregation
-            try:
-                impact = filtered_df[impact_col].agg(agg_func)
-                impact = impact / total_impact
-                return impact, total_impact
-            except Exception as e:
-                print(f"Error during aggregation for {self}: {e}")
-                return 0, total_impact
+            aggregated_series = filtered_df.groupby(impact_col)[numeric_columns].agg(agg_func)
+            if precomputed_source_df is None:
+                aggregated_source = self.source_df.groupby(impact_col)[numeric_columns].agg(agg_func)
+            else:
+                aggregated_source = precomputed_source_df.groupby(impact_col)[[numeric_columns]].agg(agg_func)
+        except Exception as e:
+            print(f"Error during aggregation for {self}: {e}")
+            return 0
+
+        kl_divergence = kl_div(aggregated_series, aggregated_source).mean()
+        # If it is still a series, then the first mean was on a dataframe and not a series, and thus we need
+        # to take the mean to get a float.
+        if isinstance(kl_divergence, pd.Series):
+            kl_divergence = kl_divergence.mean()
+        row_proportion = len(filtered_df.index.to_list()) / len(self.source_df.index.to_list())
+        impact = row_proportion * kl_divergence
+        return impact
+
 
 
 class HomogenousDataScope:
@@ -208,18 +209,18 @@ class HomogenousDataScope:
         # We use the negative impact, since we want to use a max-heap but only have min-heap available
         return - self.impact < - other.impact
 
-    def compute_impact(self, impact_measure) -> float:
+    def compute_impact(self) -> float:
         """
         Computes the impact of the HDS. This is the sum of the impacts of all data scopes in the HDS.
-        :param impact_measure:
         :return: The total impact of the HDS.
         """
-        if len(self.data_scopes) > 0:
-            impact, total_impact = self.data_scopes[0].compute_impact(impact_measure)
-        else:
-            return 0
-        for ds in self.data_scopes[1:]:
-            ds_impact, _ = ds.compute_impact(impact_measure, total_impact)
-            impact += ds_impact
+        impact = 0
+        # with ThreadPoolExecutor() as executor:
+        #     # Compute the impact of each data scope in parallel
+        #     futures = [executor.submit(ds.compute_impact) for ds in self.data_scopes]
+        #     for future in futures:
+        #         impact += future.result()
+        for ds in self.data_scopes:
+            impact += ds.compute_impact()
         self.impact = impact
         return impact

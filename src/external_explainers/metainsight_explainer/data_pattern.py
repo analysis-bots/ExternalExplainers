@@ -114,7 +114,7 @@ class BasicDataPattern:
 
     def create_hdp(self, pattern_type: PatternType, pattern_cache: Dict = None,
                    hds: List[DataScope] = None, temporal_dimensions: List[str] = None,
-                   measures: Dict[str, str] = None) -> Tuple['HomogenousDataPattern', Dict]:
+                   measures: List[Tuple[str,str]] = None) -> Tuple['HomogenousDataPattern', Dict]:
         """
         Generates a Homogenous Data Pattern (HDP) either from a given HDS or from the current DataScope.
 

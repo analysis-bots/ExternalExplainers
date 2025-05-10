@@ -93,7 +93,7 @@ class MetaInsightMiner:
         :return:
         """
         metainsight_candidates = []
-        query_cache = {}
+        datascope_cache = {}
         pattern_cache = {}
         hdp_queue = PriorityQueue()
 
@@ -136,7 +136,7 @@ class MetaInsightMiner:
                         continue
 
                     # Pruning 2: Discard HDS with extremely low impact
-                    hds_impact = hdp.compute_impact()
+                    hds_impact = hdp.compute_impact(datascope_cache)
                     if hds_impact < MIN_IMPACT:
                         # print(f"Pruning HDS for {base_ds} due to low impact ({hds_impact:.4f})")
                         continue

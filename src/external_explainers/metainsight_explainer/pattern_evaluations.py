@@ -4,9 +4,10 @@ import pandas as pd
 import numpy as np
 from diptest import diptest
 from scipy.stats import gaussian_kde, zscore
-from sklearn.linear_model import LinearRegression
-from sklearn.cluster import DBSCAN
-from external_explainers.metainsight_explainer.patterns import UnimodalityPattern
+from external_explainers.metainsight_explainer.patterns import UnimodalityPattern, TrendPattern, OutlierPattern, \
+    CyclePattern
+import pymannkendall as mk
+from cydets.algorithm import detect_cycles
 
 
 class PatternType(Enum):
@@ -18,6 +19,7 @@ class PatternType(Enum):
     UNIMODALITY = 2
     TREND = 3
     OUTLIER = 4
+    CYCLE = 5
 
 
 class PatternEvaluator:
@@ -29,11 +31,32 @@ class PatternEvaluator:
     TREND_SLOPE_THRESHOLD = 0.01  # Minimum absolute slope for trend detection
 
     @staticmethod
+    def _is_time_series(series: pd.Series) -> bool:
+        """
+        Checks if the series is a time series.
+        We consider a series to be a time series if its index is either a datetime index or an increasing integer index.
+        The second case is not always accurate, since an ordered series of numbers may not be a time series, but
+        we also can not discard the possibility that it is a time series.
+        :param series: The series to check.
+        :return: True if the series is a time series, False otherwise.
+        """
+        if isinstance(series.index, pd.DatetimeIndex):
+            return True
+        elif np.issubdtype(series.index.dtype, np.number):
+            # Sort the index first, just in case the series it is not sorted, but it does have meaningful time intervals
+            series.sort_index(inplace=True)
+            # Check if the index is strictly increasing
+            return np.all(np.diff(series.index) > 0)
+        else:
+            return False
+
+    @staticmethod
     def unimodality(series: pd.Series) -> (bool, UnimodalityPattern | None):
         """
-        Evaluates if the series is unimodal using Hartigan's Dip test and returns the highlight.
+        Evaluates if the series is unimodal using Hartigan's Dip test.
+        If it is, finds the peak or valley.
         :param series: The series to evaluate.
-        :return: (is_unimodal, highlight)
+        :return: Tuple (is_unimodal, UnimodalityPattern or None if not unimodal)
         """
         if isinstance(series, pd.Series):
             series = series.sort_index()
@@ -72,48 +95,34 @@ class PatternEvaluator:
 
 
     @staticmethod
-    def trend(series: pd.Series) -> (bool, Tuple[str, str]):
+    def trend(series: pd.Series) -> (bool, TrendPattern | None):
         """
             Evaluates if a time series exhibits a significant trend (upward or downward).
-            Uses linear regression to find the slope.
-            Returns (True, highlight) if a trend is detected, (False, None) otherwise.
-            Highlight is (slope, 'Upward' or 'Downward').
+            Uses the Mann-Kendall test to check for monotonic trends.
+
+            :param series: The series to evaluate.
+            :return: Tuple (trend_detected, a Trend pattern object or None. None if no trend is detected)
             """
         if len(series) < 2:
-            return False, (None, None)
+            return False, None
 
-        # Check if the series is a time series, or just a series of numbers
-        # We say a series is a time series if its index is either a datetime index or an increasing integer index
-        is_datetime_index = isinstance(series.index, pd.DatetimeIndex)
-        is_numeric_index = np.issubdtype(series.index.dtype, np.number)
-        if is_numeric_index:
-            series = series.sort_index()
-            # Check if the index is strictly increasing
-            is_increasing = np.all(np.diff(series.index) > 0)
+        # Check if the series is a time series
+        if not PatternEvaluator._is_time_series(series):
+            return False, None
+
+        # Use the Mann Kendall test to check for trend.
+        mk_result = mk.original_test(series)
+        p_val = mk_result.p
+        # Reject or accept the null hypothesis
+        if p_val > 0.05 or mk_result.trend == 'no trend':
+            return False, None
         else:
-            is_increasing = False
+            return True, TrendPattern(series, type=mk_result.trend, slope=mk_result.slope, intercept=mk_result.intercept)
 
-        # We can't find trends in series that are not time series -
-        if not is_datetime_index and not is_increasing:
-            return False, (None, None)
 
-        # Create a simple linear model
-        X = np.arange(len(series)).reshape(-1, 1)  # Independent variable (time index)
-        y = series.values  # Dependent variable (data values)
-
-        model = LinearRegression()
-        model.fit(X, y)
-        slope = model.coef_[0]
-
-        # Check if the slope is significant
-        if abs(slope) > PatternEvaluator.TREND_SLOPE_THRESHOLD:
-            trend_direction = 'Upward' if slope > 0 else 'Downward'
-            return True, (None, trend_direction)
-        else:
-            return False, (None, None)
 
     @staticmethod
-    def outlier(series: pd.Series) -> (bool, Tuple[str, str]):
+    def outlier(series: pd.Series) -> (bool, OutlierPattern):
         """
         Evaluates if a series contains significant outliers.
         Uses the Z-score method.
@@ -128,41 +137,38 @@ class PatternEvaluator:
 
         # Find indices where Z-score exceeds the threshold
         outlier_indices = np.where(z_scores > PatternEvaluator.OUTLIER_ZSCORE_THRESHOLD)[0]
+        if len(outlier_indices) == 0:
+            return False, None
+        outlier_values = series.iloc[outlier_indices]
+        outlier_indexes = series.index[outlier_indices]
+        return True, OutlierPattern(series, outlier_indexes=outlier_indexes, outlier_values=outlier_values)
 
-        if len(outlier_indices) > 0:
-            outlier_data_points = series.iloc[outlier_indices].values.tolist()
-            outlier_index = series.index[outlier_indices].tolist()
-            # If there are multiple outliers, use clustering and return the cluster means.
-            # This is more informative and easier to interpret than a list of raw outlier values.
-            if len(outlier_data_points) > 1:
-                # Reshape for clustering
-                outlier_data_points = np.array(outlier_data_points).reshape(-1, 1)
-                # Perform clustering
-                clustered = DBSCAN().fit_predict(outlier_data_points)
-                cluster_means = []
-                cluster_indexes = []
-                for cluster in np.unique(clustered):
-                    if cluster != -1:
-                        cluster_points = outlier_data_points[clustered == cluster]
-                        cluster_mean = np.mean(cluster_points)
-                        cluster_means.append(cluster_mean)
-                        # Take the most common index of the cluster points to represent the cluster
-                        cluster_index = outlier_index[clustered == cluster]
-                        cluster_index = pd.Series(cluster_index).mode()[0]
-                        cluster_indexes.append(cluster_index)
-                # If there are noise points, they will be labeled as -1 in DBSCAN. To us though, those are
-                # not noise points, but outliers. So we will return them as well (unlike the clustered points,
-                # their mean may be meaningless because they might be very far apart.
-                noise_points = outlier_data_points[clustered == -1]
-                if len(noise_points) > 0:
-                    noise_points = noise_points.flatten().tolist()
-                    cluster_means.extend(noise_points)
-                # Return the cluster centers as the highlight meaning "outliers around these values"
-                return True, (cluster_indexes, None)
 
-            return True, ([outlier_index[0]], None)
-        else:
-            return False, (None, None)
+    @staticmethod
+    def cycle(series: pd.Series) -> (bool, CyclePattern):
+        """
+        Evaluates if a series exhibits cyclical patterns.
+        Uses the Cydets library to detect cycles.
+        :param series: The series to evaluate.
+        :return: Tuple (is_cyclical, CyclePattern or None)
+        """
+        if len(series) < 2:
+            return False, None
+
+        # Check if the series is a time series
+        if not PatternEvaluator._is_time_series(series):
+            return False, None
+
+        # Detect cycles using Cydets
+        try:
+            cycle_info = detect_cycles(series)
+            return True, CyclePattern(series, cycle_info)
+        # For some godforsaken reason, Cydets throws a ValueError when it fails to detect cycles, instead of
+        # returning None like it should. And so, we have this incredibly silly try/except block.
+        except ValueError:
+            return False, None
+
+
 
     def __call__(self, series: pd.Series, pattern_type: PatternType) -> (bool, str):
         """
@@ -177,5 +183,7 @@ class PatternEvaluator:
             return self.trend(series)
         elif pattern_type == PatternType.OUTLIER:
             return self.outlier(series)
+        elif pattern_type == PatternType.CYCLE:
+            return self.cycle(series)
         else:
             raise ValueError(f"Unsupported pattern type: {pattern_type}")

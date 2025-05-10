@@ -209,18 +209,19 @@ class HomogenousDataScope:
         # We use the negative impact, since we want to use a max-heap but only have min-heap available
         return - self.impact < - other.impact
 
-    def compute_impact(self) -> float:
+    def compute_impact(self, cache) -> float:
         """
         Computes the impact of the HDS. This is the sum of the impacts of all data scopes in the HDS.
         :return: The total impact of the HDS.
         """
         impact = 0
-        # with ThreadPoolExecutor() as executor:
-        #     # Compute the impact of each data scope in parallel
-        #     futures = [executor.submit(ds.compute_impact) for ds in self.data_scopes]
-        #     for future in futures:
-        #         impact += future.result()
         for ds in self.data_scopes:
-            impact += ds.compute_impact()
+            if ds in cache:
+                # Use the cached impact if available to avoid recomputation, since computing the impact
+                # is the single most expensive operation in the entire pipeline
+                impact += cache[ds]
+            else:
+                impact += ds.compute_impact()
+                cache[ds] = impact
         self.impact = impact
         return impact

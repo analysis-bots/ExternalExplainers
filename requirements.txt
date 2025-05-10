@@ -4,3 +4,5 @@ matplotlib~=3.9.2
 diptest
 scipy
 scikit-learn
+pymannkendall
+cydets

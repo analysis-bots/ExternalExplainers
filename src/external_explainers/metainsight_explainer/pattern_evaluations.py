@@ -80,8 +80,8 @@ class PatternEvaluator:
             return False, None
         max_value_index = peaks.index[0] if len(peaks) == 1 else None
         min_value_index = valleys.index[0] if len(valleys) == 1 else None
-        # If both are at the edges, we can't use them
-        if (max_value_index is not None and (max_value_index == series.index[0] or max_value_index == series.index[-1])) or \
+        # If both are at the edges, this is more likely a trend than a unimodal pattern
+        if (max_value_index is not None and (max_value_index == series.index[0] or max_value_index == series.index[-1])) and \
                 (min_value_index is not None and (min_value_index == series.index[0] or min_value_index == series.index[-1])):
             return False, None
         index_name = series.index.name

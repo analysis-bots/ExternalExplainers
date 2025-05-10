@@ -10,7 +10,7 @@ class PatternInterface(ABC):
     """
 
     @abstractmethod
-    def visualize(self, ax):
+    def visualize(self, plt_ax):
         """
         Visualize the pattern.
         """
@@ -37,28 +37,35 @@ class PatternInterface(ABC):
 
 class UnimodalityPattern(PatternInterface):
 
-    def __init__(self, source_series: pd.Series, type: Literal['Peak', 'Valley'], index, index_name: str = None):
+    def __init__(self, source_series: pd.Series, type: Literal['Peak', 'Valley'], highlight_index):
         """
         Initialize the UnimodalityPattern with the provided parameters.
 
         :param source_series: The source series to evaluate.
         :param type: The type of the pattern. Either 'Peak' or 'Valley' is expected.
-        :param location: The location of the pattern.
+        :param highlight_index: The index of the peak or valley.
+        :param index_name: The name of the index.
         """
         self.source_series = source_series
         self.type = type
-        self.index = index
-        self.index_name = index_name
+        self.highlight_index = highlight_index
+        self.index_name = source_series.index.name if source_series.index.name else 'Index'
 
-    def visualize(self, ax):
+    def visualize(self, plt_ax):
         """
         Visualize the unimodality pattern.
         :return:
         """
-        ax.plot(self.source_series, label='Unimodality Pattern')
-        ax.axvline(x=self.index, color='r', linestyle='--', label='Location')
-        ax.legend()
-        ax.set_title(f'Unimodality Pattern: {self.type}')
+        plt_ax.plot(self.source_series)
+        plt_ax.set_xlabel(self.index_name)
+        plt_ax.set_ylabel('Value')
+        # Emphasize the peak or valley
+        if self.type.lower() == 'peak':
+            plt_ax.plot(self.highlight_index, self.source_series[self.highlight_index], 'ro', label='Peak')
+        elif self.type.lower() == 'valley':
+            plt_ax.plot(self.highlight_index, self.source_series[self.highlight_index], 'bo', label='Valley')
+        plt_ax.legend()
+        plt_ax.set_title(f'Unimodality Pattern: {self.type}')
 
 
     def create_explanation_string(self, commonness_set, exceptions):
@@ -74,20 +81,21 @@ class UnimodalityPattern(PatternInterface):
         """
         Check if two UnimodalityPattern objects are equal.
         :param other: Another UnimodalityPattern object.
-        :return: True if they are equal, False otherwise.
+        :return: True if they are equal, False otherwise. They are considered equal if they have the same type,
+        the same highlight index, and are on the same index.
         """
         if not isinstance(other, UnimodalityPattern):
             return False
-        return (self.source_series.equals(other.source_series) and
-                self.type == other.type and
-                self.index == other.index and
-                self.index_name == other.index_name)
+        return  (self.type == other.type and
+                self.highlight_index == other.highlight_index and
+                self.source_series.index == other.source_series.index)
 
 
 
 class TrendPattern(PatternInterface):
 
-    def __init__(self, source_series: pd.Series, type: Literal['Increasing', 'Decreasing'], slope: float, intercept: float = 0):
+    def __init__(self, source_series: pd.Series, type: Literal['Increasing', 'Decreasing'],
+                 slope: float, intercept: float = 0):
         """
         Initialize the Trend pattern with the provided parameters.
 
@@ -100,14 +108,38 @@ class TrendPattern(PatternInterface):
         self.slope = slope
         self.intercept = intercept
 
-    def visualize(self, ax):
-        pass
+    def visualize(self, plt_ax):
+        """
+        Visualize the trend pattern.
+        :param plt_ax:
+        :return:
+        """
+        plt_ax.plot(self.source_series)
+        plt_ax.set_xlabel(self.source_series.index.name if self.source_series.index.name else 'Index')
+        plt_ax.set_ylabel('Value')
+        x_numeric = np.arange(len(self.source_series))
+        # Emphasize the trend
+        plt_ax.plot(self.source_series.index, self.slope * x_numeric + self.intercept, 'g--',
+                    linewidth=2,
+                    label='Increasing Trend' if self.type.lower() == 'Increasing' else 'Decreasing Trend')
+        plt_ax.legend()
+        plt_ax.set_title(f'Trend Pattern: {self.type}')
 
     def create_explanation_string(self, commonness_set, exceptions):
         pass
 
     def __eq__(self, other):
-        pass
+        """
+        Check if two TrendPattern objects are equal.
+        :param other: Another TrendPattern object.
+        :return: True if they are equal, False otherwise. They are considered equal if they have the same type
+        (increasing / decreasing) and are on the same index.
+        """
+        if not isinstance(other, TrendPattern):
+            return False
+        # We do not compare the slope and intercept - we only ca
+        return self.source_series.index == other.source_series.index and \
+                self.type == other.type
 
 
 class OutlierPattern(PatternInterface):
@@ -124,7 +156,7 @@ class OutlierPattern(PatternInterface):
         self.outlier_indexes = outlier_indexes
         self.outlier_values = outlier_values
 
-    def visualize(self, ax):
+    def visualize(self, plt_ax):
         pass
 
     def create_explanation_string(self, commonness_set, exceptions):
@@ -146,7 +178,7 @@ class CyclePattern(PatternInterface):
         self.source_series = source_series
         self.cycles = cycles
 
-    def visualize(self, ax):
+    def visualize(self, plt_ax):
         pass
 
     def create_explanation_string(self, commonness_set, exceptions):

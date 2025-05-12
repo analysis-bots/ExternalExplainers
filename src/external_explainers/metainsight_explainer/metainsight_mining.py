@@ -176,10 +176,10 @@ class MetaInsightMiner:
 if __name__ == "__main__":
     # Create a sample Pandas DataFrame (similar to the paper's example)
     df = pd.read_csv("C:\\Users\\Yuval\\PycharmProjects\\pd-explain\\Examples\\Datasets\\adult.csv")
-    df = df.sample(2500, random_state=42)  # Sample 5000 rows for testing
+    df = df.sample(5000, random_state=42)  # Sample 5000 rows for testing
 
     # Define dimensions, measures
-    dimensions = ['age', 'education-num']
+    dimensions = ['age', 'education-num', 'marital-status']
     measures = [('capital-gain', 'mean'), ('capital-loss', 'mean')]
 
     # Run the mining process

@@ -271,6 +271,7 @@ class CyclePattern(PatternInterface):
         # Cycles is a dataframe with the columns: t_start, t_end, t_minimum, doc, duration
         self.cycles = cycles
         self.hash = None
+        self._cycle_tuples = frozenset((row['t_start'], row['t_end']) for _, row in cycles.iterrows())
 
     def visualize(self, plt_ax):
         """
@@ -300,8 +301,9 @@ class CyclePattern(PatternInterface):
         """
         if not isinstance(other, CyclePattern):
             return False
-        return self.cycles.isin(other.cycles).all().all() or \
-                other.cycles.isin(self.cycles).all().all()
+
+        # Use precomputed cycle tuples instead of computing them each time
+        return self._cycle_tuples.issubset(other._cycle_tuples) or other._cycle_tuples.issubset(self._cycle_tuples)
 
     def __repr__(self) -> str:
         """

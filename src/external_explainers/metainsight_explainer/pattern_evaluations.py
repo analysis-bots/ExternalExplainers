@@ -1,13 +1,13 @@
 from enum import Enum
-from typing import List, Dict, Tuple
 import pandas as pd
 import numpy as np
 from diptest import diptest
-from scipy.stats import gaussian_kde, zscore
+from scipy.stats import zscore
 from external_explainers.metainsight_explainer.patterns import UnimodalityPattern, TrendPattern, OutlierPattern, \
     CyclePattern
 import pymannkendall as mk
 from cydets.algorithm import detect_cycles
+from singleton_decorator import singleton
 
 
 class PatternType(Enum):
@@ -22,16 +22,20 @@ class PatternType(Enum):
     CYCLE = 5
 
 
+@singleton
 class PatternEvaluator:
     """
     A class to evaluate different patterns in a series.
     """
 
-    OUTLIER_ZSCORE_THRESHOLD = 2.0  # Z-score threshold for outlier detection
-    TREND_SLOPE_THRESHOLD = 0.01  # Minimum absolute slope for trend detection
+    def __init__(self):
+        self.pattern_cache = {}
+        self.OUTLIER_ZSCORE_THRESHOLD = 2.0  # Z-score threshold for outlier detection
+        self.TREND_SLOPE_THRESHOLD = 0.01  # Minimum absolute slope for trend detection
 
-    @staticmethod
-    def _is_time_series(series: pd.Series) -> bool:
+
+
+    def _is_time_series(self, series: pd.Series) -> bool:
         """
         Checks if the series is a time series.
         We consider a series to be a time series if its index is either a datetime index or an increasing integer index.
@@ -50,8 +54,8 @@ class PatternEvaluator:
         else:
             return False
 
-    @staticmethod
-    def unimodality(series: pd.Series) -> (bool, UnimodalityPattern | None):
+
+    def unimodality(self, series: pd.Series) -> (bool, UnimodalityPattern | None):
         """
         Evaluates if the series is unimodal using Hartigan's Dip test.
         If it is, finds the peak or valley.
@@ -94,8 +98,7 @@ class PatternEvaluator:
 
 
 
-    @staticmethod
-    def trend(series: pd.Series) -> (bool, TrendPattern | None):
+    def trend(self, series: pd.Series) -> (bool, TrendPattern | None):
         """
             Evaluates if a time series exhibits a significant trend (upward or downward).
             Uses the Mann-Kendall test to check for monotonic trends.
@@ -107,7 +110,7 @@ class PatternEvaluator:
             return False, None
 
         # Check if the series is a time series
-        if not PatternEvaluator._is_time_series(series):
+        if not self._is_time_series(series):
             return False, None
 
         # Use the Mann Kendall test to check for trend.
@@ -121,8 +124,7 @@ class PatternEvaluator:
 
 
 
-    @staticmethod
-    def outlier(series: pd.Series) -> (bool, OutlierPattern):
+    def outlier(self, series: pd.Series) -> (bool, OutlierPattern):
         """
         Evaluates if a series contains significant outliers.
         Uses the Z-score method.
@@ -136,7 +138,7 @@ class PatternEvaluator:
         z_scores = np.abs(zscore(series.dropna()))
 
         # Find indices where Z-score exceeds the threshold
-        outlier_indices = np.where(z_scores > PatternEvaluator.OUTLIER_ZSCORE_THRESHOLD)[0]
+        outlier_indices = np.where(z_scores > self.OUTLIER_ZSCORE_THRESHOLD)[0]
         if len(outlier_indices) == 0:
             return False, None
         outlier_values = series.iloc[outlier_indices]
@@ -144,8 +146,7 @@ class PatternEvaluator:
         return True, OutlierPattern(series, outlier_indexes=outlier_indexes, outlier_values=outlier_values)
 
 
-    @staticmethod
-    def cycle(series: pd.Series) -> (bool, CyclePattern):
+    def cycle(self, series: pd.Series) -> (bool, CyclePattern):
         """
         Evaluates if a series exhibits cyclical patterns.
         Uses the Cydets library to detect cycles.
@@ -155,8 +156,25 @@ class PatternEvaluator:
         if len(series) < 2:
             return False, None
 
+        # Ensure the series has enough variability to detect cycles
+        if series.std() < 1e-10 or (series.max() - series.min()) < 1e-8:
+            return False, None
+
+        # Quick pre-filtering using autocorrelation (much faster than full detection)
+        # Suppress the specific divide-by-zero warnings during autocorrelation calculation
+        with np.errstate(divide='ignore', invalid='ignore'):
+            # Quick pre-filtering using autocorrelation
+            if len(series) >= 20:
+                # Handle possible NaN results from autocorrelation
+                try:
+                    autocorr = pd.Series(series.values).autocorr(lag=len(series) // 4)
+                    if pd.isna(autocorr) or abs(autocorr) < 0.3:  # Check for NaN and low correlation
+                        return False, None
+                except (ValueError, ZeroDivisionError):
+                    return False, None
+
         # Check if the series is a time series
-        if not PatternEvaluator._is_time_series(series):
+        if not self._is_time_series(series):
             return False, None
 
         # Detect cycles using Cydets
@@ -179,13 +197,21 @@ class PatternEvaluator:
         :param pattern_type: The type of the pattern to evaluate.
         :return: (is_valid, highlight)
         """
+        series_hash = hash(tuple(series.values))
+        cache_key = (series_hash, pattern_type)
+
+        if cache_key in self.pattern_cache:
+            return self.pattern_cache[cache_key]
+
         if pattern_type == PatternType.UNIMODALITY:
-            return self.unimodality(series)
+            result = self.unimodality(series)
         elif pattern_type == PatternType.TREND:
-            return self.trend(series)
+            result = self.trend(series)
         elif pattern_type == PatternType.OUTLIER:
-            return self.outlier(series)
+            result = self.outlier(series)
         elif pattern_type == PatternType.CYCLE:
-            return self.cycle(series)
+            result = self.cycle(series)
         else:
             raise ValueError(f"Unsupported pattern type: {pattern_type}")
+        self.pattern_cache[cache_key] = result
+        return result

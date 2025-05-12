@@ -183,7 +183,7 @@ class MetaInsight:
         # Ensure conciseness is within a reasonable range, e.g., [0, 1]
         return conciseness
 
-    def compute_score(self, impact_measure=None) -> float:
+    def compute_score(self, cache) -> float:
         """
         Computes the score of the MetaInsight.
         The score is the multiple of the conciseness of the MetaInsight and the impact score of the HDS
@@ -193,7 +193,7 @@ class MetaInsight:
         """
         conciseness = self.calculate_conciseness()
         # If the impact has already been computed, use it
-        hds_score = self.hdp.impact if self.hdp.impact != 0 else self.hdp.compute_impact(impact_measure=impact_measure)
+        hds_score = self.hdp.impact if self.hdp.impact != 0 else self.hdp.compute_impact(cache)
         self.score = conciseness * hds_score
         return self.score
 
@@ -227,3 +227,15 @@ class MetaInsight:
             raise ValueError("The other object must be an instance of MetaInsight.")
         overlap_ratio = self.compute_pairwise_overlap_ratio(other)
         return min(self.score, other.score) * overlap_ratio
+
+    def visualize(self, plt_ax) -> None:
+        """
+        Visualize the metainsight - both its commonness and exceptions.
+        :param plt_ax: The matplotlib axis to plot on.
+        :return:
+        """
+        len_commoness = len(self.commonness_set)
+        len_exceptions = len(self.exceptions)
+        # Split the axes in 2: one for commonness, one for exceptions
+        if len_commoness >= 1 and len_exceptions >= 1:
+            pass

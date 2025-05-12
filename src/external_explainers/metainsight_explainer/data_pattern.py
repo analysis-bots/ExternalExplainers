@@ -23,6 +23,7 @@ class BasicDataPattern:
         self.pattern_type = pattern_type
         self.highlight = highlight
         self.pattern_cache = {}
+        self.hash = None
 
     def __eq__(self, other):
         if not isinstance(other, BasicDataPattern):
@@ -49,12 +50,10 @@ class BasicDataPattern:
             self.pattern_type != PatternType.NONE and self.pattern_type != PatternType.OTHER
 
     def __hash__(self):
-        data_scope_str = "".join([f"{k}: {v}" for k, v in self.data_scope.subspace.items()])
-        highlight_string = ""
-        if self.highlight:
-            for h in self.highlight:
-                highlight_string += f"{h} "
-        return hash((data_scope_str, self.pattern_type, highlight_string))
+        if self.hash is not None:
+            return self.hash
+        self.hash = hash((hash(self.data_scope), self.pattern_type, self.highlight))
+        return self.hash
 
     def __repr__(self):
         return f"BasicDataPattern(ds={self.data_scope}, type='{self.pattern_type}', highlight={self.highlight})"
@@ -68,10 +67,7 @@ class BasicDataPattern:
         :param pattern_type: The type of the pattern to evaluate.
         """
         # Apply subspace filters
-        filtered_df = df.copy()
-        for dim, value in data_scope.subspace.items():
-            if value != '*':
-                filtered_df = filtered_df[filtered_df[dim] == value]
+        filtered_df = data_scope.apply_subspace()
 
         # Group by breakdown dimension and aggregate measure
         if data_scope.breakdown not in filtered_df.columns:

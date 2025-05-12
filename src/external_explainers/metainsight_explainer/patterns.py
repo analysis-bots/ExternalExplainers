@@ -10,29 +10,43 @@ class PatternInterface(ABC):
     """
 
     @abstractmethod
-    def visualize(self, plt_ax):
+    def visualize(self, plt_ax) -> None:
         """
         Visualize the pattern.
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
     @abstractmethod
-    def create_explanation_string(self, commonness_set, exceptions):
-        """
-        Create an explanation string for the pattern.
-        :param commonness_set: The commonness set, where the pattern is common.
-        :param exceptions: The exceptions dict, where the pattern is different from the commonness set or did not occur.
-        :return:
-        """
-        raise NotImplementedError("Subclasses must implement this method.")
-
-    @abstractmethod
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         """
         Check if two patterns are equal
         :param other: Another pattern of the same type
         :return:
         """
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    @abstractmethod
+    def __repr__(self) -> str:
+        """
+        String representation of the pattern.
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+
+
+    @abstractmethod
+    def __str__(self) -> str:
+        """
+        String representation of the pattern.
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+
+
+    @abstractmethod
+    def __hash__(self) -> int:
+        """
+        Hash representation of the pattern.
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
 
 
 class UnimodalityPattern(PatternInterface):
@@ -50,8 +64,9 @@ class UnimodalityPattern(PatternInterface):
         self.type = type
         self.highlight_index = highlight_index
         self.index_name = source_series.index.name if source_series.index.name else 'Index'
+        self.hash = None
 
-    def visualize(self, plt_ax):
+    def visualize(self, plt_ax) -> None:
         """
         Visualize the unimodality pattern.
         :return:
@@ -65,30 +80,44 @@ class UnimodalityPattern(PatternInterface):
         elif self.type.lower() == 'valley':
             plt_ax.plot(self.highlight_index, self.source_series[self.highlight_index], 'bo', label='Valley')
         plt_ax.legend()
-        plt_ax.set_title(f'Unimodality Pattern: {self.type}')
 
 
-    def create_explanation_string(self, commonness_set, exceptions):
-        """
-        Create an explanation string for the unimodality pattern.
-        :param commonness_set: The commonness set, where the pattern is common.
-        :param exceptions: The exceptions dict, where the pattern is different from the commonness set or did not occur.
-        :return:
-        """
-        return f"Unimodality Pattern: {commonness_set}, Exceptions: {exceptions}"
-
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         """
         Check if two UnimodalityPattern objects are equal.
         :param other: Another UnimodalityPattern object.
         :return: True if they are equal, False otherwise. They are considered equal if they have the same type,
-        the same highlight index, and are on the same index.
+        the same highlight index.
         """
         if not isinstance(other, UnimodalityPattern):
             return False
         return  (self.type == other.type and
-                self.highlight_index == other.highlight_index and
-                self.source_series.index == other.source_series.index)
+                self.highlight_index == other.highlight_index)
+
+
+    def __repr__(self) -> str:
+        """
+        String representation of the UnimodalityPattern.
+        :return: A string representation of the UnimodalityPattern.
+        """
+        return f"UnimodalityPattern(type={self.type}, highlight_index={self.highlight_index})"
+
+    def __str__(self) -> str:
+        """
+        String representation of the UnimodalityPattern.
+        :return: A string representation of the UnimodalityPattern.
+        """
+        return f"UnimodalityPattern(type={self.type}, highlight_index={self.highlight_index})"
+
+    def __hash__(self) -> int:
+        """
+        Hash representation of the UnimodalityPattern.
+        :return: A hash representation of the UnimodalityPattern.
+        """
+        if self.hash is not None:
+            return self.hash
+        self.hash = hash(f"UnimodalityPattern(type={self.type}, highlight_index={self.highlight_index})")
+        return self.hash
 
 
 
@@ -107,8 +136,9 @@ class TrendPattern(PatternInterface):
         self.type = type
         self.slope = slope
         self.intercept = intercept
+        self.hash = None
 
-    def visualize(self, plt_ax):
+    def visualize(self, plt_ax) -> None:
         """
         Visualize the trend pattern.
         :param plt_ax:
@@ -123,23 +153,43 @@ class TrendPattern(PatternInterface):
                     linewidth=2,
                     label='Increasing Trend' if self.type.lower() == 'Increasing' else 'Decreasing Trend')
         plt_ax.legend()
-        plt_ax.set_title(f'Trend Pattern: {self.type}')
 
-    def create_explanation_string(self, commonness_set, exceptions):
-        pass
-
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         """
         Check if two TrendPattern objects are equal.
         :param other: Another TrendPattern object.
         :return: True if they are equal, False otherwise. They are considered equal if they have the same type
-        (increasing / decreasing) and are on the same index.
+        (increasing / decreasing) (we trust that comparisons will be done on the same series).
         """
         if not isinstance(other, TrendPattern):
             return False
         # We do not compare the slope and intercept - we only ca
-        return self.source_series.index == other.source_series.index and \
-                self.type == other.type
+        return self.type == other.type
+
+
+    def __repr__(self) -> str:
+        """
+        String representation of the TrendPattern.
+        :return: A string representation of the TrendPattern.
+        """
+        return f"TrendPattern(type={self.type})"
+
+    def __str__(self) -> str:
+        """
+        String representation of the TrendPattern.
+        :return: A string representation of the TrendPattern.
+        """
+        return f"TrendPattern(type={self.type})"
+
+    def __hash__(self) -> int:
+        """
+        Hash representation of the TrendPattern.
+        :return: A hash representation of the TrendPattern.
+        """
+        if self.hash is not None:
+            return self.hash
+        self.hash = hash(f"TrendPattern(type={self.type})")
+        return self.hash
 
 
 class OutlierPattern(PatternInterface):
@@ -155,15 +205,57 @@ class OutlierPattern(PatternInterface):
         self.source_series = source_series
         self.outlier_indexes = outlier_indexes
         self.outlier_values = outlier_values
+        self.hash = None
 
-    def visualize(self, plt_ax):
-        pass
+    def visualize(self, plt_ax) -> None:
+        """
+        Visualize the outlier pattern.
+        :param plt_ax:
+        :return:
+        """
+        plt_ax.scatter(self.source_series.index, self.source_series, label='Regular Data Point')
+        plt_ax.set_xlabel(self.source_series.index.name if self.source_series.index.name else 'Index')
+        plt_ax.set_ylabel('Value')
+        # Emphasize the outliers
+        plt_ax.scatter(self.outlier_indexes, self.outlier_values, color='red', label='Outliers')
+        plt_ax.legend()
 
-    def create_explanation_string(self, commonness_set, exceptions):
-        pass
 
     def __eq__(self, other):
-        pass
+        """
+        Check if two OutlierPattern objects are equal.
+        :param other: Another OutlierPattern object.
+        :return: True if they are equal, False otherwise. They are considered equal if the index set of one is a subset
+        of the other or vice versa.
+        """
+        if not isinstance(other, OutlierPattern):
+            return False
+        return self.outlier_indexes.isin(other.outlier_indexes).all() or \
+                other.outlier_indexes.isin(self.outlier_indexes).all()
+
+    def __repr__(self) -> str:
+        """
+        String representation of the OutlierPattern.
+        :return: A string representation of the OutlierPattern.
+        """
+        return f"OutlierPattern(outlier_indexes={self.outlier_indexes})"
+
+    def __str__(self) -> str:
+        """
+        String representation of the OutlierPattern.
+        :return: A string representation of the OutlierPattern.
+        """
+        return f"OutlierPattern(outlier_indexes={self.outlier_indexes})"
+
+    def __hash__(self) -> int:
+        """
+        Hash representation of the OutlierPattern.
+        :return: A hash representation of the OutlierPattern.
+        """
+        if self.hash is not None:
+            return self.hash
+        self.hash = hash(f"OutlierPattern(outlier_indexes={self.outlier_indexes})")
+        return self.hash
 
 
 class CyclePattern(PatternInterface):
@@ -173,25 +265,69 @@ class CyclePattern(PatternInterface):
         Initialize the Cycle pattern with the provided parameters.
 
         :param source_series: The source series to evaluate.
-        :param cycle_length: The length of the cycle.
+        :param cycles: The cycles detected in the series.
         """
         self.source_series = source_series
+        # Cycles is a dataframe with the columns: t_start, t_end, t_minimum, doc, duration
         self.cycles = cycles
+        self.hash = None
 
     def visualize(self, plt_ax):
-        pass
-
-    def create_explanation_string(self, commonness_set, exceptions):
-        pass
+        """
+        Visualize the cycle pattern.
+        :param plt_ax:
+        :return:
+        """
+        plt_ax.plot(self.source_series)
+        plt_ax.set_xlabel(self.source_series.index.name if self.source_series.index.name else 'Index')
+        plt_ax.set_ylabel('Value')
+        i = 1
+        # Emphasize the cycles, and alternate colors
+        colors = ['red', 'blue', 'green', 'orange', 'purple']
+        color_index = 0
+        for _, cycle in self.cycles.iterrows():
+            plt_ax.axvspan(cycle['t_start'], cycle['t_end'], color=colors[color_index], alpha=0.5, label=f'Cycle {i}')
+            i += 1
+            color_index = (color_index + 1) % len(colors)
+        plt_ax.legend()
 
     def __eq__(self, other):
-        pass
+        """
+        Check if two CyclePattern objects are equal.
+        :param other:
+        :return: True if they are equal, False otherwise. They are considered equal if the cycles of one are a
+        subset of the other or vice versa.
+        """
+        if not isinstance(other, CyclePattern):
+            return False
+        return self.cycles.isin(other.cycles).all().all() or \
+                other.cycles.isin(self.cycles).all().all()
 
+    def __repr__(self) -> str:
+        """
+        String representation of the CyclePattern.
+        :return: A string representation of the CyclePattern.
+        """
+        return f"CyclePattern(cycles={self.cycles})"
 
-if __name__ == '__main__':
-    data = np.random.normal(0, 1, 1000)
-    series = pd.Series(data)
-    pattern = UnimodalityPattern(series, 'Peak', 500)
-    fig, ax = plt.subplots()
-    pattern.visualize(ax)
-    plt.show()
+    def __str__(self) -> str:
+        """
+        String representation of the CyclePattern.
+        :return: A string representation of the CyclePattern.
+        """
+        return f"CyclePattern(cycles={self.cycles})"
+
+    def __hash__(self) -> int:
+        """
+        Hash representation of the CyclePattern.
+        :return: A hash representation of the CyclePattern.
+        """
+        if self.hash is not None:
+            return self.hash
+        # Create a hashable representation of the key cycle properties
+        if len(self.cycles) == 0:
+            return hash("empty_cycle")
+        # Use a tuple of tuples for cycle start/end times
+        cycle_tuples = tuple((row['t_start'], row['t_end']) for _, row in self.cycles.iterrows())
+        self.hash = hash(cycle_tuples)
+        return self.hash

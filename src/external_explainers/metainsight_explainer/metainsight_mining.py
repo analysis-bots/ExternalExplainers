@@ -1,10 +1,9 @@
 import itertools
-from typing import List, Dict, Tuple
+from typing import List, Tuple
 import numpy as np
 from queue import PriorityQueue
 
 import pandas as pd
-from concurrent.futures import ThreadPoolExecutor
 
 from external_explainers.metainsight_explainer.data_pattern import BasicDataPattern, HomogenousDataPattern
 from external_explainers.metainsight_explainer.meta_insight import (MetaInsight,
@@ -86,10 +85,9 @@ class MetaInsightMiner:
         """
         The main function to mine MetaInsights.
         Mines metainsights from the given data frame based on the provided dimensions, measures, and impact measure.
-        :param source_df:
-        :param dimensions:
-        :param measures:
-        :param impact_measure:
+        :param source_df: The source DataFrame to mine MetaInsights from.
+        :param dimensions: The dimensions to consider for mining.
+        :param measures: The measures to consider for mining.
         :return:
         """
         metainsight_candidates = []
@@ -107,6 +105,17 @@ class MetaInsightMiner:
         # Example: Generate data scopes with one filter in subspace and one breakdown
         for filter_dim in dimensions:
             unique_values = source_df[filter_dim].dropna().unique()
+            # If there are too many unique values, we bin them if it's a numeric column, or only choose the
+            # top 10 most frequent values if it's a categorical column
+            if len(unique_values) > 10:
+                if source_df[filter_dim].dtype in ['int64', 'float64']:
+                    # Bin the numeric column
+                    bins = pd.cut(source_df[filter_dim], bins=10, retbins=True)[1]
+                    unique_values = [f"{bins[i]} <= {filter_dim} <= {bins[i + 1]}" for i in range(len(bins) - 1)]
+                else:
+                    # Choose the top 10 most frequent values
+                    top_values = source_df[filter_dim].value_counts().nlargest(10).index.tolist()
+                    unique_values = [v for v in unique_values if v in top_values]
             for value in unique_values:
                 for breakdown_dim in dimensions:
                     if breakdown_dim != filter_dim:  # Breakdown should be different from filter dim
@@ -158,7 +167,7 @@ class MetaInsightMiner:
 
             if metainsight:
                 # Calculate and assign the score
-                metainsight.compute_score()
+                metainsight.compute_score(datascope_cache)
                 metainsight_candidates.append(metainsight)
 
         return self.rank_metainsights(metainsight_candidates)
@@ -169,9 +178,9 @@ if __name__ == "__main__":
     df = pd.read_csv("C:\\Users\\Yuval\\PycharmProjects\\pd-explain\\Examples\\Datasets\\adult.csv")
     df = df.sample(2500, random_state=42)  # Sample 5000 rows for testing
 
-    # Define dimensions, measures, and impact measure
+    # Define dimensions, measures
     dimensions = ['age', 'education-num']
-    measures = [('age', 'mean'), ('capital-gain', 'mean'), ('capital-loss', 'mean')]
+    measures = [('capital-gain', 'mean'), ('capital-loss', 'mean')]
 
     # Run the mining process
     import time
@@ -189,12 +198,5 @@ if __name__ == "__main__":
     if top_metainsights:
         for i, mi in enumerate(top_metainsights):
             print(f"Rank {i + 1}: {mi}")
-            # You can further print details about commonness and exceptions if needed
-            # print("  Commonness:")
-            # for c in mi.commonness_set:
-            #     print(f"    - {len(c)} patterns, Type: {c[0].type}, Highlight: {c[0].highlight}")
-            # print("  Exceptions:")
-            # for e in mi.exceptions:
-            #      print(f"    - {e}")
     else:
         print("No MetaInsights found.")

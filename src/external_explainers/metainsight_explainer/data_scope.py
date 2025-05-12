@@ -3,6 +3,7 @@ from typing import Dict, List, Tuple
 from scipy.special import kl_div
 from concurrent.futures import ThreadPoolExecutor
 import time
+import re
 
 
 class DataScope:
@@ -26,15 +27,44 @@ class DataScope:
         self.subspace = subspace
         self.breakdown = breakdown
         self.measure = measure
+        self.hash = None
 
     def __hash__(self):
+        if self.hash is not None:
+            return self.hash
         # Need a hashable representation of subspace for hashing
         subspace_tuple = tuple(sorted(self.subspace.items())) if isinstance(self.subspace, dict) else tuple(
             self.subspace)
-        return hash((subspace_tuple, self.breakdown, self.measure))
+        self.hash = hash((subspace_tuple, self.breakdown, self.measure))
+        return self.hash
 
     def __repr__(self):
         return f"DataScope(subspace={self.subspace}, breakdown='{self.breakdown}', measure={self.measure})"
+
+    def __eq__(self, other):
+        if not isinstance(other, DataScope):
+            return False
+        return (self.subspace == other.subspace and
+                self.breakdown == other.breakdown and
+                self.measure == other.measure)
+
+    def apply_subspace(self) -> pd.DataFrame:
+        """
+        Applies the subspace filters to the source DataFrame and returns the filtered DataFrame.
+        """
+        filtered_df = self.source_df.copy()
+        for dim, value in self.subspace.items():
+            if value != '*':
+                pattern = rf"^.+<= {dim} <= .+$"
+                pattern_matched = re.match(pattern, str(value))
+                if pattern_matched:
+                    # If the value is a range, split it and filter accordingly
+                    split = re.split(r"<=|>=|<|>", value)
+                    lower_bound, dim, upper_bound = float(split[0].strip()), split[1].strip(), float(split[2].strip())
+                    filtered_df = filtered_df[(filtered_df[dim] >= lower_bound) & (filtered_df[dim] <= upper_bound)]
+                else:
+                    filtered_df = filtered_df[filtered_df[dim] == value]
+        return filtered_df
 
     def _subspace_extend(self) -> List['DataScope']:
         """
@@ -47,6 +77,17 @@ class DataScope:
         if isinstance(self.subspace, dict):
             for dim_to_extend in self.subspace.keys():
                 unique_values = self.source_df[dim_to_extend].dropna().unique()
+                # If there are too many unique values, we bin them if it's a numeric column, or only choose the
+                # top 10 most frequent values if it's a categorical column
+                if len(unique_values) > 10:
+                    if self.source_df[dim_to_extend].dtype in ['int64', 'float64']:
+                        # Bin the numeric column
+                        bins = pd.cut(self.source_df[dim_to_extend], bins=10, retbins=True)[1]
+                        unique_values = [f"{bins[i]} <= {dim_to_extend} <= {bins[i + 1]}" for i in range(len(bins) - 1)]
+                    else:
+                        # Choose the top 10 most frequent values
+                        top_values = self.source_df[dim_to_extend].value_counts().nlargest(10).index.tolist()
+                        unique_values = [v for v in unique_values if v in top_values]
                 for value in unique_values:
                     # Ensure it's a sibling
                     if self.subspace.get(dim_to_extend) != value:
@@ -128,10 +169,7 @@ class DataScope:
             raise ValueError(f"Impact column '{impact_col}' not found in source DataFrame.")
 
         # Perform subspace filtering
-        filtered_df = self.source_df.copy()
-        for dim, value in self.subspace.items():
-            if value != '*':
-                filtered_df = filtered_df[filtered_df[dim] == value]
+        filtered_df = self.apply_subspace()
         # Group by breakdown dimension and aggregate measure
         if self.breakdown not in filtered_df.columns:
             # Cannot group by breakdown if it's not in the filtered data
@@ -219,9 +257,10 @@ class HomogenousDataScope:
             if ds in cache:
                 # Use the cached impact if available to avoid recomputation, since computing the impact
                 # is the single most expensive operation in the entire pipeline
-                impact += cache[ds]
+                ds_impact = cache[ds]
             else:
-                impact += ds.compute_impact()
-                cache[ds] = impact
+                ds_impact = ds.compute_impact()
+                cache[ds] = ds_impact
+            impact += ds_impact
         self.impact = impact
         return impact

@@ -86,9 +86,9 @@ class PatternEvaluator:
             return False, None
         index_name = series.index.name
         if max_value_index:
-            return True, UnimodalityPattern(series, 'Peak', max_value_index, index_name=index_name)
+            return True, UnimodalityPattern(series, 'Peak', max_value_index)
         elif min_value_index:
-            return True, UnimodalityPattern(series, 'Valley', min_value_index, index_name=index_name)
+            return True, UnimodalityPattern(series, 'Valley', min_value_index)
         else:
             return False, None
 
@@ -162,7 +162,9 @@ class PatternEvaluator:
         # Detect cycles using Cydets
         try:
             cycle_info = detect_cycles(series)
-            return True, CyclePattern(series, cycle_info)
+            if cycle_info is not None and len(cycle_info) > 0:
+                return True, CyclePattern(series, cycle_info)
+            return False, None
         # For some godforsaken reason, Cydets throws a ValueError when it fails to detect cycles, instead of
         # returning None like it should. And so, we have this incredibly silly try/except block.
         except ValueError:

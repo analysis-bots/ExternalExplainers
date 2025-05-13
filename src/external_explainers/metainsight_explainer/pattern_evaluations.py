@@ -206,6 +206,8 @@ class PatternEvaluator:
         if cache_key in self.pattern_cache:
             return self.pattern_cache[cache_key]
 
+        series = series[~series.isna()]  # Remove NaN values
+
         if pattern_type == PatternType.UNIMODALITY:
             result = self.unimodality(series)
         elif pattern_type == PatternType.TREND:

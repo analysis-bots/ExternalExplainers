@@ -140,14 +140,14 @@ class MetaInsightMiner:
         pattern_cache = {}
         hdp_queue = PriorityQueue()
 
-        # Example: Generate data scopes with one dimension as breakdown, all '*' subspace
+        # Generate data scopes with one dimension as breakdown, all '*' subspace
         base_data_scopes = []
         for breakdown_dim in dimensions:
             for measure_col, agg_func in measures:
                 base_data_scopes.append(
                     DataScope(source_df, {}, breakdown_dim, (measure_col, agg_func)))
 
-        # Example: Generate data scopes with one filter in subspace and one breakdown
+        # Generate data scopes with one filter in subspace and one breakdown
         for filter_dim in dimensions:
             unique_values = source_df[filter_dim].dropna().unique()
             # If there are too many unique values, we bin them if it's a numeric column, or only choose the
@@ -168,10 +168,6 @@ class MetaInsightMiner:
                             base_data_scopes.append(
                                 DataScope(source_df, {filter_dim: value}, breakdown_dim, (measure_col, agg_func)))
 
-        print(f"Generated {len(base_data_scopes)} potential base data scopes.")
-
-        # --- Pattern-Guided HDS Generation and Evaluation ---
-        # For each base data scope, evaluate basic patterns and generate HDSs
 
         for base_ds in base_data_scopes:
             # Evaluate basic patterns for the base data scope for selected types
@@ -192,20 +188,15 @@ class MetaInsightMiner:
                     # Pruning 2: Discard HDS with extremely low impact
                     hds_impact = hdp.compute_impact(datascope_cache)
                     if hds_impact < MIN_IMPACT:
-                        # print(f"Pruning HDS for {base_ds} due to low impact ({hds_impact:.4f})")
                         continue
 
                     # Add HDS to a queue for evaluation
                     hdp_queue.put((hdp, pattern_type))
 
-        # --- Evaluate HDSs to find MetaInsights ---
-        # Process HDSs from the queue (simulating priority queue by just processing in order)
-
         processed_hdp_count = 0
-        while not hdp_queue.empty():  # and time_elapsed < time_budget: # Add time budget check
+        while not hdp_queue.empty():
             hdp, pattern_type = hdp_queue.get()
             processed_hdp_count += 1
-            # print(f"Processing HDS {processed_hds_count}/{len(hds_queue) + processed_hds_count} for pattern '{pattern_type}'")
 
             # Evaluate HDP to find MetaInsight
             metainsight = MetaInsight.create_meta_insight(hdp, commonness_threshold=self.min_commonness)
@@ -224,13 +215,15 @@ if __name__ == "__main__":
     df = df.sample(5000, random_state=42)  # Sample 5000 rows for testing
 
     # Define dimensions, measures
-    dimensions = ['marital-status', 'workclass']
-    measures = [('capital-gain', 'mean'), ('capital-loss', 'mean')]
+    dimensions = ['marital-status', 'workclass', 'age', 'education-num']
+    measures = [('capital-gain', 'mean'), ('capital-loss', 'mean'),
+                ('hours-per-week', 'mean'), ('hours-per-week', 'std'),
+                ('fnlwgt', 'mean'), ('fnlwgt', 'std')]
 
     # Run the mining process
     import time
     start_time = time.time()
-    miner = MetaInsightMiner(k=5, min_score=0.01, min_commonness=0.5)
+    miner = MetaInsightMiner(k=4, min_score=0.01, min_commonness=0.5)
     top_metainsights = miner.mine_metainsights(
         df,
         dimensions,
@@ -239,7 +232,6 @@ if __name__ == "__main__":
     end_time = time.time()
     print(f"Time taken: {end_time - start_time:.2f} seconds")
 
-    print("\n--- Top MetaInsights ---")
     fig = plt.figure(figsize=(30, 25))
     main_grid = gridspec.GridSpec(2, 2, figure=fig, wspace=0.2, hspace=0.3)
 

@@ -3,6 +3,7 @@ from typing import Dict, List, Tuple
 
 from external_explainers.metainsight_explainer.data_scope import DataScope, HomogenousDataScope
 from external_explainers.metainsight_explainer.pattern_evaluations import PatternEvaluator, PatternType
+from external_explainers.metainsight_explainer.patterns import PatternInterface
 
 
 class BasicDataPattern:
@@ -11,7 +12,7 @@ class BasicDataPattern:
     Contains 3 elements: data scope, type (interpretation type) and highlight.
     """
 
-    def __init__(self, data_scope: DataScope, pattern_type: PatternType, highlight: str | None):
+    def __init__(self, data_scope: DataScope, pattern_type: PatternType, highlight: PatternInterface | None):
         """
         Initialize the BasicDataPattern with the provided data scope, type and highlight.
 

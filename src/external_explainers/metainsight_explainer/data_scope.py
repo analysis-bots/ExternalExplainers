@@ -196,6 +196,33 @@ class DataScope:
         impact = row_proportion * kl_divergence
         return impact
 
+    def create_query_string(self, df_name: str = None) -> str:
+        """
+        Create a query string for the data scope.
+        :param df_name: The name of the DataFrame to use in the query string.
+        :return:
+        """
+        if df_name is None:
+            df_name = self.source_df.name if self.source_df.name else "df"
+        subspace_where_string = []
+        for dim, value in self.subspace.items():
+            # If the value is a range, we can just add it as is
+            pattern = rf"^.+<= {dim} <= .+$"
+            pattern_matched = re.match(pattern, str(value))
+            if pattern_matched:
+                subspace_where_string.append(value)
+            else:
+                # Otherwise, we need to add it as an equality string
+                subspace_where_string.append(f"{dim} == '{value}'")
+        subspace_where_string = 'WHERE ' + ' AND '.join(subspace_where_string)
+        measures_select_string = f'SELECT {self.measure[1].upper()}({self.measure[0]})'
+        breakdown_groupby_string = f"GROUP BY {self.breakdown}"
+        query_string = f"{measures_select_string} FROM {df_name} {subspace_where_string} {breakdown_groupby_string}"
+        return query_string
+
+
+
+
 
 
 class HomogenousDataScope:

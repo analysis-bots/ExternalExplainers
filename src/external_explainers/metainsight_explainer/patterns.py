@@ -51,19 +51,20 @@ class PatternInterface(ABC):
 
 class UnimodalityPattern(PatternInterface):
 
-    def __init__(self, source_series: pd.Series, type: Literal['Peak', 'Valley'], highlight_index):
+    def __init__(self, source_series: pd.Series, type: Literal['Peak', 'Valley'], highlight_index, value_name: str=None):
         """
         Initialize the UnimodalityPattern with the provided parameters.
 
         :param source_series: The source series to evaluate.
         :param type: The type of the pattern. Either 'Peak' or 'Valley' is expected.
         :param highlight_index: The index of the peak or valley.
-        :param index_name: The name of the index.
+        :param value_name: The name of the value to display.
         """
         self.source_series = source_series
         self.type = type
         self.highlight_index = highlight_index
         self.index_name = source_series.index.name if source_series.index.name else 'Index'
+        self.value_name = value_name if value_name else 'Value'
         self.hash = None
 
     def visualize(self, plt_ax) -> None:
@@ -73,13 +74,13 @@ class UnimodalityPattern(PatternInterface):
         """
         plt_ax.plot(self.source_series)
         plt_ax.set_xlabel(self.index_name)
-        plt_ax.set_ylabel('Value')
+        plt_ax.set_ylabel(self.value_name)
         # Emphasize the peak or valley
         if self.type.lower() == 'peak':
             plt_ax.plot(self.highlight_index, self.source_series[self.highlight_index], 'ro', label='Peak')
         elif self.type.lower() == 'valley':
             plt_ax.plot(self.highlight_index, self.source_series[self.highlight_index], 'bo', label='Valley')
-        plt_ax.legend()
+        plt_ax.legend(loc="upper left")
 
 
     def __eq__(self, other) -> bool:
@@ -124,7 +125,7 @@ class UnimodalityPattern(PatternInterface):
 class TrendPattern(PatternInterface):
 
     def __init__(self, source_series: pd.Series, type: Literal['Increasing', 'Decreasing'],
-                 slope: float, intercept: float = 0):
+                 slope: float, intercept: float = 0, value_name: str = None):
         """
         Initialize the Trend pattern with the provided parameters.
 
@@ -136,6 +137,7 @@ class TrendPattern(PatternInterface):
         self.type = type
         self.slope = slope
         self.intercept = intercept
+        self.value_name = value_name if value_name else 'Value'
         self.hash = None
 
     def visualize(self, plt_ax) -> None:
@@ -146,13 +148,13 @@ class TrendPattern(PatternInterface):
         """
         plt_ax.plot(self.source_series)
         plt_ax.set_xlabel(self.source_series.index.name if self.source_series.index.name else 'Index')
-        plt_ax.set_ylabel('Value')
+        plt_ax.set_ylabel(self.value_name)
         x_numeric = np.arange(len(self.source_series))
         # Emphasize the trend
         plt_ax.plot(self.source_series.index, self.slope * x_numeric + self.intercept, 'g--',
                     linewidth=2,
-                    label='Increasing Trend' if self.type.lower() == 'Increasing' else 'Decreasing Trend')
-        plt_ax.legend()
+                    label='Increasing Trend' if self.type.lower() == 'increasing' else 'Decreasing Trend')
+        plt_ax.legend(loc="upper left")
 
     def __eq__(self, other) -> bool:
         """
@@ -194,7 +196,8 @@ class TrendPattern(PatternInterface):
 
 class OutlierPattern(PatternInterface):
 
-    def __init__(self, source_series: pd.Series, outlier_indexes: pd.Index, outlier_values: pd.Series):
+    def __init__(self, source_series: pd.Series, outlier_indexes: pd.Index, outlier_values: pd.Series,
+                 value_name: str = None):
         """
         Initialize the Outlier pattern with the provided parameters.
 
@@ -205,6 +208,7 @@ class OutlierPattern(PatternInterface):
         self.source_series = source_series
         self.outlier_indexes = outlier_indexes
         self.outlier_values = outlier_values
+        self.value_name = value_name if value_name else 'Value'
         self.hash = None
 
     def visualize(self, plt_ax) -> None:
@@ -215,10 +219,10 @@ class OutlierPattern(PatternInterface):
         """
         plt_ax.scatter(self.source_series.index, self.source_series, label='Regular Data Point')
         plt_ax.set_xlabel(self.source_series.index.name if self.source_series.index.name else 'Index')
-        plt_ax.set_ylabel('Value')
+        plt_ax.set_ylabel(self.value_name)
         # Emphasize the outliers
         plt_ax.scatter(self.outlier_indexes, self.outlier_values, color='red', label='Outliers')
-        plt_ax.legend()
+        plt_ax.legend(loc="upper left")
 
 
     def __eq__(self, other):
@@ -260,7 +264,7 @@ class OutlierPattern(PatternInterface):
 
 class CyclePattern(PatternInterface):
 
-    def __init__(self, source_series: pd.Series, cycles: pd.DataFrame):
+    def __init__(self, source_series: pd.Series, cycles: pd.DataFrame, value_name: str = None):
         """
         Initialize the Cycle pattern with the provided parameters.
 
@@ -272,6 +276,7 @@ class CyclePattern(PatternInterface):
         self.cycles = cycles
         self.hash = None
         self._cycle_tuples = frozenset((row['t_start'], row['t_end']) for _, row in cycles.iterrows())
+        self.value_name = value_name if value_name else 'Value'
 
     def visualize(self, plt_ax):
         """
@@ -281,7 +286,7 @@ class CyclePattern(PatternInterface):
         """
         plt_ax.plot(self.source_series)
         plt_ax.set_xlabel(self.source_series.index.name if self.source_series.index.name else 'Index')
-        plt_ax.set_ylabel('Value')
+        plt_ax.set_ylabel(self.value_name)
         i = 1
         # Emphasize the cycles, and alternate colors
         colors = ['red', 'blue', 'green', 'orange', 'purple']
@@ -290,7 +295,7 @@ class CyclePattern(PatternInterface):
             plt_ax.axvspan(cycle['t_start'], cycle['t_end'], color=colors[color_index], alpha=0.5, label=f'Cycle {i}')
             i += 1
             color_index = (color_index + 1) % len(colors)
-        plt_ax.legend()
+        plt_ax.legend(loc="upper left")
 
     def __eq__(self, other):
         """

@@ -1,6 +1,10 @@
 from collections import defaultdict
 from typing import List, Dict
 
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import textwrap
+
 import math
 
 from external_explainers.metainsight_explainer.data_pattern import HomogenousDataPattern
@@ -24,6 +28,7 @@ class MetaInsight:
                  commonness_threshold: float = COMMONNESS_THRESHOLD,
                  balance_parameter: float = BALANCE_PARAMETER,
                  actionability_regularizer_param: float = ACTIONABILITY_REGULARIZER_PARAM,
+                 source_name: str = None,
                  ):
         """
         :param hdp: list of BasicDataPattern objects
@@ -37,9 +42,26 @@ class MetaInsight:
         self.commonness_threshold = commonness_threshold
         self.balance_parameter = balance_parameter
         self.actionability_regularizer_param = actionability_regularizer_param
+        self.source_name = source_name if source_name else "df"
+        self.hash = None
 
     def __repr__(self):
         return f"MetaInsight(score={self.score:.4f}, #HDP={len(self.hdp)}, #Commonness={len(self.commonness_set)}, #Exceptions={len(self.exceptions)})"
+
+    def __hash__(self):
+        if self.hash is not None:
+            return self.hash
+        self.hash = 0
+        for commonness in self.commonness_set:
+            for pattern in commonness:
+                self.hash += pattern.__hash__()
+        return self.hash
+
+
+    def __eq__(self, other):
+        if not isinstance(other, MetaInsight):
+            return False
+        return self.commonness_set == other.commonness_set
 
     @staticmethod
     def categorize_exceptions(commonness_set, exceptions):
@@ -228,14 +250,129 @@ class MetaInsight:
         overlap_ratio = self.compute_pairwise_overlap_ratio(other)
         return min(self.score, other.score) * overlap_ratio
 
-    def visualize(self, plt_ax) -> None:
+
+    def _create_commonness_set_title(self, commonness_set: List[BasicDataPattern]) -> str:
         """
-        Visualize the metainsight - both its commonness and exceptions.
-        :param plt_ax: The matplotlib axis to plot on.
-        :return:
+        Create a title for the commonness set based on the patterns it contains.
+        :param commonness_set: A list of BasicDataPattern objects.
+        :return: A string representing the title for the commonness set.
         """
-        len_commoness = len(self.commonness_set)
-        len_exceptions = len(self.exceptions)
-        # Split the axes in 2: one for commonness, one for exceptions
-        if len_commoness >= 1 and len_exceptions >= 1:
-            pass
+        if not commonness_set:
+            return "No Patterns"
+        title = ""
+        # Check the type of the first pattern in the set. All patterns in the set should be of the same type.
+        pattern_type = commonness_set[0].pattern_type
+        if pattern_type == PatternType.UNIMODALITY:
+            title += "Common unimodality detected "
+        elif pattern_type == PatternType.TREND:
+            title += "Common trend detected "
+        elif pattern_type == PatternType.OUTLIER:
+            title += "Common outliers detected "
+        elif pattern_type == PatternType.CYCLE:
+            title += "Common cycles detected "
+        # Find the common subspace of the patterns in the set
+        # First, get the data scope of all of the patterns in the set
+        data_scopes = [pattern.data_scope for pattern in commonness_set]
+        subspaces = [datascope.subspace for datascope in data_scopes]
+        # Now, find the common subspace they share.
+        shared_subspace = set(subspaces[0].keys())
+        for subspace in subspaces[1:]:
+            shared_subspace.intersection_update(subspace.keys())
+        title += f"for over {self.commonness_threshold * 100}% of values of {', '.join(shared_subspace)}, "
+        breakdowns = set([datascope.breakdown for datascope in data_scopes])
+        measures = set([datascope.measure for datascope in data_scopes])
+        measures_str = []
+        for measure in measures:
+            if isinstance(measure, tuple):
+                measures_str.append(f"{{{measure[0]}: {measure[1]}}}")
+            else:
+                measures_str.append(measure)
+        title += f"when grouping by {', '.join(breakdowns)} and aggregating by {', '.join(measures_str)}"
+        title = textwrap.wrap(title, 70)
+        title = "\n".join(title)
+        return title
+
+    def visualize_commonesses(self, fig=None, subplot_spec=None, figsize=(15, 10)) -> None:
+        """
+        Visualize only the commonness sets of the metainsight, with each set in its own column.
+        Within each column, patterns are arranged in a grid with at most 3 patterns per column.
+
+        :param fig: Optional figure to plot on (or create a new one if None)
+        :param subplot_spec: Optional subplot specification to plot within
+        :param figsize: Figure size if creating a new figure
+        :return: The figure with visualization
+        """
+        # Create figure if not provided
+        if fig is None:
+            fig = plt.figure(figsize=figsize)
+
+        # Only proceed if there are commonness sets
+        if not self.commonness_set:
+            return fig
+
+        # Create the main grid with one column per commonness set
+        num_commonness_sets = len(self.commonness_set)
+
+        if subplot_spec is not None:
+            # Use the provided subplot area
+            outer_grid = gridspec.GridSpecFromSubplotSpec(1, num_commonness_sets,
+                                                          subplot_spec=subplot_spec,
+                                                          wspace=0.6, hspace=0.4)
+        else:
+            # Use the entire figure
+            outer_grid = gridspec.GridSpec(1, num_commonness_sets, figure=fig, wspace=0.6, hspace=0.4)
+
+        # For each commonness set
+        for i, patterns in enumerate(self.commonness_set):
+            # Calculate how many sub-columns needed for this set
+            num_patterns = len(patterns)
+            num_cols = math.ceil(num_patterns / 3)  # At most 3 patterns per column
+            max_patterns_per_col = min(3, math.ceil(num_patterns / num_cols))
+
+            # Create a sub-grid for this commonness set's title and patterns
+            set_grid = gridspec.GridSpecFromSubplotSpec(
+                max_patterns_per_col + 1,  # Title row + pattern rows
+                num_cols,
+                subplot_spec=outer_grid[i],
+                height_ratios=[0.2] + [1] * max_patterns_per_col,  # Title row smaller
+                hspace=1.5,  # Increased spacing between rows
+                wspace=0.5,  # Increased spacing between columns
+            )
+
+            # Add the set title spanning all columns in the first row
+            title_ax = fig.add_subplot(set_grid[0, :])
+            set_title = self._create_commonness_set_title(patterns)
+            title_ax.text(0.5, 0.5, set_title,
+                          ha='center', va='center',
+                          fontsize=12, fontweight='bold')
+            title_ax.axis('off')  # Hide axis for the title
+
+            # Plot each pattern
+            j = 0
+            for pattern in patterns:
+                # Visualize the pattern
+                if hasattr(pattern, 'highlight') and pattern.highlight is not None:
+                    # Calculate which column and row this pattern should be in
+                    col = j // max_patterns_per_col
+                    row = (j % max_patterns_per_col) + 1  # +1 to skip title row
+                    # Create subplot for this pattern
+                    ax = fig.add_subplot(set_grid[row, col])
+
+                    pattern.highlight.visualize(ax)
+
+                    # Rotate x-axis tick labels
+                    plt.setp(ax.get_xticklabels(), rotation=45, ha='right', fontsize=8)
+
+                    # Instead of setting title, add text box for query below the plot
+                    query_text = pattern.data_scope.create_query_string(df_name=self.source_name)
+                    query_text = textwrap.fill(query_text, width=40)
+
+                    # Add text box with query string instead of title
+                    props = dict(boxstyle='round', facecolor='wheat', alpha=0.3)
+                    ax.text(0.5, 1.5, query_text, transform=ax.transAxes, fontsize=9,
+                            ha='center', va='top', bbox=props)
+
+                    j += 1
+
+        return fig
+

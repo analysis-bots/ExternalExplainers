@@ -90,9 +90,9 @@ class PatternEvaluator:
             return False, None
         index_name = series.index.name
         if max_value_index:
-            return True, UnimodalityPattern(series, 'Peak', max_value_index)
+            return True, UnimodalityPattern(series, 'Peak', max_value_index, value_name=series.name)
         elif min_value_index:
-            return True, UnimodalityPattern(series, 'Valley', min_value_index)
+            return True, UnimodalityPattern(series, 'Valley', min_value_index, value_name=series.name)
         else:
             return False, None
 
@@ -120,7 +120,8 @@ class PatternEvaluator:
         if p_val > 0.05 or mk_result.trend == 'no trend':
             return False, None
         else:
-            return True, TrendPattern(series, type=mk_result.trend, slope=mk_result.slope, intercept=mk_result.intercept)
+            return True, TrendPattern(series, type=mk_result.trend,
+                                      slope=mk_result.slope, intercept=mk_result.intercept, value_name=series.name)
 
 
 
@@ -143,7 +144,9 @@ class PatternEvaluator:
             return False, None
         outlier_values = series.iloc[outlier_indices]
         outlier_indexes = series.index[outlier_indices]
-        return True, OutlierPattern(series, outlier_indexes=outlier_indexes, outlier_values=outlier_values)
+        return True, OutlierPattern(series, outlier_indexes=outlier_indexes,
+                                    outlier_values=outlier_values, value_name=series.name
+                                    )
 
 
     def cycle(self, series: pd.Series) -> (bool, CyclePattern):
@@ -181,7 +184,7 @@ class PatternEvaluator:
         try:
             cycle_info = detect_cycles(series)
             if cycle_info is not None and len(cycle_info) > 0:
-                return True, CyclePattern(series, cycle_info)
+                return True, CyclePattern(series, cycle_info, value_name=series.name)
             return False, None
         # For some godforsaken reason, Cydets throws a ValueError when it fails to detect cycles, instead of
         # returning None like it should. And so, we have this incredibly silly try/except block.

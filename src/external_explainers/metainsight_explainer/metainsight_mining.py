@@ -4,6 +4,7 @@ import numpy as np
 from queue import PriorityQueue
 
 import pandas as pd
+from matplotlib import pyplot as plt, gridspec
 
 from external_explainers.metainsight_explainer.data_pattern import BasicDataPattern, HomogenousDataPattern
 from external_explainers.metainsight_explainer.meta_insight import (MetaInsight,
@@ -37,6 +38,37 @@ class MetaInsightMiner:
         self.balance_factor = balance_factor
         self.actionability_regularizer = actionability_regularizer
 
+    def _compute_variety_factor(self, metainsight: MetaInsight, included_pattern_types_count: dict) -> float:
+        """
+        Compute the variety factor for a given MetaInsight based on the pattern types
+        already present in the selected set.
+
+        :param metainsight: The MetaInsight object to compute the variety factor for.
+        :param included_pattern_types_count: Dictionary tracking count of selected pattern types.
+        :return: The variety factor between 0 and 1.
+        """
+        # Get pattern types in this metainsight
+        candidate_pattern_types = [commonness[0].pattern_type for commonness in metainsight.commonness_set]
+
+        if not candidate_pattern_types:
+            return 0.0
+
+        # Calculate how many of this metainsight's pattern types are already included
+        pattern_repetition = [included_pattern_types_count.get(pt, 0) for pt in candidate_pattern_types]
+        if any(pt == 0 for pt in pattern_repetition):
+            return 1
+        pattern_repetition = sum(pattern_repetition)
+
+        # Normalize by the number of pattern types in this metainsight
+        avg_repetition = pattern_repetition / len(candidate_pattern_types)
+
+        # Exponential decay: variety_factor decreases as pattern repetition increases
+        # The 0.5 constant controls how quickly the penalty grows
+        variety_factor = np.exp(-0.5 * avg_repetition)
+
+        return variety_factor
+
+
     def rank_metainsights(self, metainsight_candidates: List[MetaInsight]):
         """
         Rank the MetaInsights based on their scores.
@@ -48,6 +80,11 @@ class MetaInsightMiner:
         selected_metainsights = []
         # Sort candidates by score initially (descending)
         candidate_set = sorted(list(set(metainsight_candidates)), key=lambda mi: mi.score, reverse=True)
+
+        included_pattern_types_count = {
+            pattern_type: 0
+            for pattern_type in PatternType if pattern_type != PatternType.NONE and pattern_type != PatternType.OTHER
+        }
 
         # Greedy selection of MetaInsights.
         # We compute the total use of the currently selected MetaInsights, then how much a candidate would add to that.
@@ -65,6 +102,9 @@ class MetaInsightMiner:
                     mi.compute_pairwise_overlap_score(candidate) for mi in selected_metainsights))
 
                 gain = total_use_with_candidate - total_use_approx
+                # Added penalty for repeating the same pattern types
+                variety_factor = self._compute_variety_factor(candidate, included_pattern_types_count)
+                gain *= variety_factor
 
                 if gain > max_gain:
                     max_gain = gain
@@ -73,6 +113,11 @@ class MetaInsightMiner:
             if best_candidate:
                 selected_metainsights.append(best_candidate)
                 candidate_set.remove(best_candidate)
+                # Store a counter for the pattern types of the selected candidates
+                candidate_pattern_types = [commonness[0].pattern_type for commonness in best_candidate.commonness_set]
+                for pattern_type in candidate_pattern_types:
+                    if pattern_type in included_pattern_types_count:
+                        included_pattern_types_count[pattern_type] += 1
             else:
                 # No candidate provides a positive gain, or candidate_set is empty
                 break
@@ -90,7 +135,7 @@ class MetaInsightMiner:
         :param measures: The measures to consider for mining.
         :return:
         """
-        metainsight_candidates = []
+        metainsight_candidates = set()
         datascope_cache = {}
         pattern_cache = {}
         hdp_queue = PriorityQueue()
@@ -168,9 +213,9 @@ class MetaInsightMiner:
             if metainsight:
                 # Calculate and assign the score
                 metainsight.compute_score(datascope_cache)
-                metainsight_candidates.append(metainsight)
+                metainsight_candidates.add(metainsight)
 
-        return self.rank_metainsights(metainsight_candidates)
+        return self.rank_metainsights(list(metainsight_candidates))
 
 
 if __name__ == "__main__":
@@ -179,7 +224,7 @@ if __name__ == "__main__":
     df = df.sample(5000, random_state=42)  # Sample 5000 rows for testing
 
     # Define dimensions, measures
-    dimensions = ['age', 'education-num', 'marital-status']
+    dimensions = ['marital-status', 'workclass']
     measures = [('capital-gain', 'mean'), ('capital-loss', 'mean')]
 
     # Run the mining process
@@ -195,8 +240,12 @@ if __name__ == "__main__":
     print(f"Time taken: {end_time - start_time:.2f} seconds")
 
     print("\n--- Top MetaInsights ---")
-    if top_metainsights:
-        for i, mi in enumerate(top_metainsights):
-            print(f"Rank {i + 1}: {mi}")
-    else:
-        print("No MetaInsights found.")
+    fig = plt.figure(figsize=(30, 25))
+    main_grid = gridspec.GridSpec(2, 2, figure=fig, wspace=0.2, hspace=0.3)
+
+    for i, mi in enumerate(top_metainsights[:4]):
+        row, col = i // 2, i % 2
+        mi.visualize_commonesses(fig=fig, subplot_spec=main_grid[row, col])
+
+    # plt.tight_layout()
+    plt.show()

@@ -20,6 +20,8 @@ MIN_IMPACT = 0.01
 class MetaInsightMiner:
     """
     This class is responsible for the actual process of mining MetaInsights.
+    The full process is described in the paper " MetaInsight: Automatic Discovery of Structured Knowledge for
+    Exploratory Data Analysis" by Ma et al. (2021).
     """
 
     def __init__(self, k=5, min_score=MIN_IMPACT, min_commonness=COMMONNESS_THRESHOLD, balance_factor=BALANCE_PARAMETER,
@@ -163,7 +165,9 @@ class MetaInsightMiner:
                     unique_values = [v for v in unique_values if v in top_values]
             for value in unique_values:
                 for breakdown_dim in dimensions:
-                    if breakdown_dim != filter_dim:  # Breakdown should be different from filter dim
+                    # Prevents the same breakdown dimension from being used as filter. This is because it
+                    # is generally not very useful to groupby the same dimension as the filter dimension.
+                    if breakdown_dim != filter_dim:
                         for measure_col, agg_func in measures:
                             base_data_scopes.append(
                                 DataScope(source_df, {filter_dim: value}, breakdown_dim, (measure_col, agg_func)))
@@ -215,10 +219,9 @@ if __name__ == "__main__":
     df = df.sample(5000, random_state=42)  # Sample 5000 rows for testing
 
     # Define dimensions, measures
-    dimensions = ['marital-status', 'workclass', 'age', 'education-num']
+    dimensions = ['marital-status', 'workclass', 'education-num']
     measures = [('capital-gain', 'mean'), ('capital-loss', 'mean'),
-                ('hours-per-week', 'mean'), ('hours-per-week', 'std'),
-                ('fnlwgt', 'mean'), ('fnlwgt', 'std')]
+                ('hours-per-week', 'mean')]
 
     # Run the mining process
     import time

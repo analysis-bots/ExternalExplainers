@@ -151,9 +151,10 @@ class TrendPattern(PatternInterface):
         plt_ax.set_ylabel(self.value_name)
         x_numeric = np.arange(len(self.source_series))
         # Emphasize the trend
+        label = f"y={self.slope:.2f}x + {self.intercept:.2f}"
         plt_ax.plot(self.source_series.index, self.slope * x_numeric + self.intercept, 'g--',
                     linewidth=2,
-                    label='Increasing Trend' if self.type.lower() == 'increasing' else 'Decreasing Trend')
+                    label=label)
         plt_ax.legend(loc="upper left")
 
     def __eq__(self, other) -> bool:
@@ -165,7 +166,7 @@ class TrendPattern(PatternInterface):
         """
         if not isinstance(other, TrendPattern):
             return False
-        # We do not compare the slope and intercept - we only ca
+        # We do not compare the slope and intercept - we only care about the type of trend
         return self.type == other.type
 
 

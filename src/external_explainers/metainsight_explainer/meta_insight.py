@@ -263,11 +263,36 @@ class MetaInsight:
         # Check the type of the first pattern in the set. All patterns in the set should be of the same type.
         pattern_type = commonness_set[0].pattern_type
         if pattern_type == PatternType.UNIMODALITY:
-            title += "Common unimodality detected "
+            title += "Common unimodality detected - "
+            umimodality = commonness_set[0].highlight
+            type = umimodality.type
+            index = umimodality.highlight_index
+            title += f"common {type} at index {index} "
         elif pattern_type == PatternType.TREND:
-            title += "Common trend detected "
+            trend = commonness_set[0].highlight
+            trend_type = trend.type
+            title += f"Common {trend_type} trend detected "
         elif pattern_type == PatternType.OUTLIER:
             title += "Common outliers detected "
+            outliers = [pattern.highlight for pattern in commonness_set]
+            common_outlier_indexes = {}
+            # Create a counter for the outlier indexes
+            for outlier in outliers:
+                if outlier.outlier_indexes is not None:
+                    for idx in outlier.outlier_indexes:
+                        if idx in common_outlier_indexes:
+                            common_outlier_indexes[idx] += 1
+                        else:
+                            common_outlier_indexes[idx] = 1
+            # Sort the outlier indexes by their count
+            common_outlier_indexes = sorted(common_outlier_indexes.items(), key=lambda x: x[1], reverse=True)
+            # Take the top 5 most common outlier indexes
+            num_outliers = len(common_outlier_indexes)
+            common_outlier_indexes = list(dict(common_outlier_indexes).keys())
+            # If there are more than 5, truncate the list and add "..."
+            if num_outliers > 5:
+                common_outlier_indexes.append("...")
+            title += f"at indexes {' / '.join(map(str, common_outlier_indexes))}: "
         elif pattern_type == PatternType.CYCLE:
             title += "Common cycles detected "
         # Find the common subspace of the patterns in the set
@@ -287,7 +312,7 @@ class MetaInsight:
                 measures_str.append(f"{{{measure[0]}: {measure[1]}}}")
             else:
                 measures_str.append(measure)
-        title += f"when grouping by {', '.join(breakdowns)} and aggregating by {', '.join(measures_str)}"
+        title += f"when grouping by {', '.join(breakdowns)} and aggregating by {' or '.join(measures_str)}"
         title = textwrap.wrap(title, 70)
         title = "\n".join(title)
         return title

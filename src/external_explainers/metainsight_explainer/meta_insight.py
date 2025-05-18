@@ -317,7 +317,7 @@ class MetaInsight:
         title = "\n".join(title)
         return title
 
-    def visualize_commonesses(self, fig=None, subplot_spec=None, figsize=(15, 10)) -> None:
+    def visualize_commonesses_individually(self, fig=None, subplot_spec=None, figsize=(15, 10)) -> None:
         """
         Visualize only the commonness sets of the metainsight, with each set in its own column.
         Within each column, patterns are arranged in a grid with at most 3 patterns per column.
@@ -398,6 +398,221 @@ class MetaInsight:
                             ha='center', va='top', bbox=props)
 
                     j += 1
+
+        return fig
+
+    def visualize(self, fig=None, subplot_spec=None, figsize=(15, 10)) -> None:
+        """
+        Visualize the metainsight, showing commonness sets on the left and exceptions on the right.
+
+        :param fig: Matplotlib figure to plot on. If None, a new figure is created.
+        :param subplot_spec: GridSpec to plot on. If None, a new GridSpec is created.
+        :param figsize: Size of the figure if a new one is created.
+        """
+        # Create a new figure if not provided
+        n_cols = 2 if self.exceptions and len(self.exceptions) > 0 else 1
+        if fig is None:
+            fig = plt.figure(figsize=figsize)
+            outer_grid = gridspec.GridSpec(1, n_cols, width_ratios=[1, 1], figure=fig, wspace=0.4)
+        else:
+            if subplot_spec is None:
+                outer_grid = gridspec.GridSpec(1, n_cols, width_ratios=[1, 1], figure=fig, wspace=0.4)
+            else:
+                outer_grid = gridspec.GridSpecFromSubplotSpec(1, n_cols, width_ratios=[1, 1],
+                                                              subplot_spec=subplot_spec, wspace=0.4)
+
+        # Set up the left side for commonness sets
+        left_grid = gridspec.GridSpecFromSubplotSpec(1, len(self.commonness_set) or 1,
+                                                     subplot_spec=outer_grid[0, 0], wspace=0.3)
+
+        # Plot each commonness set in its own column
+        for i, commonness_set in enumerate(self.commonness_set):
+            if not commonness_set:  # Skip empty sets
+                continue
+
+            # Create a subplot for this commonness set
+            ax = fig.add_subplot(left_grid[0, i])
+
+            # Add light orange background to commonness sets
+            ax.set_facecolor((1.0, 0.9, 0.8, 0.2))  # Light orange with alpha
+
+            # Get the pattern type from the first pattern (all should be the same type)
+            pattern_type = commonness_set[0].pattern_type
+
+            # Get the highlights for visualization
+            highlights = [pattern.highlight for pattern in commonness_set]
+
+            # Create labels based on subspace and measure
+            labels = []
+            for pattern in commonness_set:
+                # Format the subspace part
+                subspace_str = ", ".join([f"{key}={val}" for key, val in pattern.data_scope.subspace.items()])
+
+                # Format the measure part
+                measure = pattern.data_scope.measure
+                if isinstance(measure, tuple):
+                    measure_str = f"{measure[0]}({measure[1]})"
+                else:
+                    measure_str = str(measure)
+
+                labels.append(f"{subspace_str}, {measure_str}")
+
+            # Create title for this commonness set
+            title = self._create_commonness_set_title(commonness_set)
+            # Wrap title to prevent overflowing
+            title = textwrap.fill(title, width=40)
+
+            # Call the appropriate visualize_many function based on pattern type
+            if highlights:
+                # Create a custom version of visualize_many that places the legend at the bottom
+                # instead of the side to prevent clipping
+                orig_visualize_many = highlights[0].visualize_many
+
+                def modified_visualize_many(plt_ax, patterns, labels, title):
+                    orig_visualize_many(plt_ax, patterns, labels, title)
+                    # Move legend to bottom to prevent clipping into right side
+                    if len(labels) > 3:
+                        # For many items, use a horizontal layout at the bottom
+                        plt_ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.3),
+                                      ncol=min(3, len(labels)), fontsize=8)
+                    else:
+                        # For fewer items, keep at the bottom right
+                        plt_ax.legend(loc='lower right', fontsize=9)
+
+                # Use our modified version
+                if hasattr(highlights[0], "visualize_many"):
+                    orig_visualize = highlights[0].visualize_many
+                    highlights[0].visualize_many = modified_visualize_many
+                    highlights[0].visualize_many(plt_ax=ax, patterns=highlights, labels=labels, title=title)
+                    highlights[0].visualize_many = orig_visualize
+                else:
+                    ax.set_title(title)
+
+        # Handle exceptions area if there are any
+        if self.exceptions and n_cols > 1:
+            # Set up the right side for exceptions with one row per exception type
+            right_grid = gridspec.GridSpecFromSubplotSpec(len(self.exceptions), 1,
+                                                          subplot_spec=outer_grid[0, 1],
+                                                          hspace=0.4)  # Add more vertical space
+
+            # Process each exception category
+            for i, (category, exception_patterns) in enumerate(self.exceptions.items()):
+                if not exception_patterns:  # Skip empty categories
+                    continue
+
+                # For "None" category, just skip it. It may be a good idea to add text saying
+                # "Nothing found for...", but we already have an issue with visual clutter and
+                # clipping everywhere.
+                if category.lower() == "none" or category.lower() == "no-pattern":
+                    continue
+
+                # For "highlight change" category, visualize all in one plot
+                if category.lower() == "highlight-change" or category.lower() == "highlight change":
+                    ax = fig.add_subplot(right_grid[i, 0])
+                    ax.set_facecolor((0.8, 0.9, 1.0, 0.2))  # Light blue with alpha
+
+                    # Get the highlights for visualization
+                    highlights = [pattern.highlight for pattern in exception_patterns]
+
+                    # Create labels based on subspace and measure
+                    labels = []
+                    for pattern in exception_patterns:
+                        subspace_str = ""
+                        for key, val in pattern.data_scope.subspace.items():
+                            split = val.split("<=")
+                            if len(split) > 1:
+                                subspace_str += f"{val}"
+                            else:
+                                subspace_str += f"{key} = {val}, "
+                        measure = pattern.data_scope.measure
+                        if isinstance(measure, tuple):
+                            measure_str = f"{measure[0]}({measure[1]})"
+                        else:
+                            measure_str = str(measure)
+
+                        labels.append(f"{subspace_str}, {measure_str}")
+
+                    title = f"Same pattern, different highlights ({len(exception_patterns)})"
+
+                    if highlights and hasattr(highlights[0], "visualize_many"):
+                        highlights[0].visualize_many(plt_ax=ax, patterns=highlights, labels=labels, title=title)
+
+                # For "type change" or other categories, create a nested grid
+                elif category.lower() == "type-change" or category.lower() == "type change":
+                    # Make sure there are highlights to visualize
+                    highlights = [pattern.highlight for pattern in exception_patterns]
+                    if all(highlight is None for highlight in highlights):
+                        continue
+
+                    # Create a nested grid for this row with more space
+                    type_grid = gridspec.GridSpecFromSubplotSpec(2, 1,
+                                                                 subplot_spec=right_grid[i, 0],
+                                                                 height_ratios=[1, 5], hspace=0.3, wspace=0.3)
+
+                    # Add title for the category in the first row
+                    title_ax = fig.add_subplot(type_grid[0, 0])
+                    title_ax.axis('off')
+                    title_ax.set_facecolor((0.8, 0.9, 1.0, 0.2))
+                    title_ax.text(0.5, 0.5,
+                                  f"Different patterns types detected ({len(exception_patterns)})",
+                                  horizontalalignment='center',
+                                  verticalalignment='center',
+                                  fontsize=12,
+                                  fontweight='bold')
+
+                    # Create subplots for each pattern in the second row
+                    num_patterns = len(exception_patterns)
+                    # At most 2 patterns per row
+                    n_cols = 2
+                    n_rows = math.ceil(num_patterns / n_cols)
+                    pattern_grid = gridspec.GridSpecFromSubplotSpec(n_rows, n_cols,
+                                                                    subplot_spec=type_grid[1, 0],
+                                                                    wspace=0.4)  # More horizontal space
+
+
+                    for j, pattern in enumerate(exception_patterns):
+                        col_index = j % n_cols
+                        row_index = j // n_cols
+                        ax = fig.add_subplot(pattern_grid[row_index, col_index])
+                        ax.set_facecolor((0.8, 0.9, 1.0, 0.2))  # Light blue with alpha
+
+                        # Format labels for title
+                        subspace_str = ", ".join([f"{key}={val}" for key, val in pattern.data_scope.subspace.items()])
+                        measure = pattern.data_scope.measure
+                        if isinstance(measure, tuple):
+                            measure_str = f"{measure[0]}({measure[1]})"
+                        else:
+                            measure_str = str(measure)
+
+                        title = ""
+                        if pattern.pattern_type == PatternType.UNIMODALITY:
+                            title += "Unimodality found for "
+                        if pattern.pattern_type == PatternType.TREND:
+                            title += "Trend found for "
+                        if pattern.pattern_type == PatternType.OUTLIER:
+                            title += "Outliers found for "
+                        if pattern.pattern_type == PatternType.CYCLE:
+                            title += "Cycles found for "
+
+                        title += f"{subspace_str}, {measure_str}"
+                        title = textwrap.fill(title, 30)  # Wrap title to prevent overflow
+
+                        # Visualize the individual pattern with internal legend
+                        if pattern.highlight:
+                            # Custom visualization with compact legend
+                            def individual_exception_visualize(plt_ax):
+                                pattern.highlight.visualize(plt_ax=plt_ax)
+                                if hasattr(plt_ax, 'legend'):
+                                    plt_ax.legend(loc='lower center', fontsize=7)
+
+                            individual_exception_visualize(ax)
+                            ax.set_title(title, fontsize=9)
+
+        # # Add a main title with score information
+        # fig.suptitle(f"MetaInsight (Score: {self.score:.4f})", fontsize=16, y=0.98)
+
+        # Allow more space for the figure elements
+        plt.subplots_adjust(bottom=0.15, top=0.9)  # Adjust bottom and top margins
 
         return fig
 

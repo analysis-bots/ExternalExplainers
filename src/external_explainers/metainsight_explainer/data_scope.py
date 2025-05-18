@@ -64,10 +64,12 @@ class DataScope:
                     filtered_df = filtered_df[filtered_df[dim] == value]
         return filtered_df
 
-    def _subspace_extend(self) -> List['DataScope']:
+    def _subspace_extend(self, n_bins: int = 10) -> List['DataScope']:
         """
         Extends the subspace of the DataScope into its sibling group by the dimension dim_to_extend.
         Subspaces with the same sibling group only differ from each other in 1 non-empty filter.
+
+        :param n_bins: The number of bins to use for numeric columns. Defaults to 10.
 
         :return: A list of new DataScope objects with the extended subspace.
         """
@@ -77,10 +79,10 @@ class DataScope:
                 unique_values = self.source_df[dim_to_extend].dropna().unique()
                 # If there are too many unique values, we bin them if it's a numeric column, or only choose the
                 # top 10 most frequent values if it's a categorical column
-                if len(unique_values) > 10:
+                if len(unique_values) > n_bins:
                     if self.source_df[dim_to_extend].dtype in ['int64', 'float64']:
                         # Bin the numeric column
-                        bins = pd.cut(self.source_df[dim_to_extend], bins=10, retbins=True)[1]
+                        bins = pd.cut(self.source_df[dim_to_extend], bins=n_bins, retbins=True)[1]
                         unique_values = [f"{bins[i]} <= {dim_to_extend} <= {bins[i + 1]}" for i in range(len(bins) - 1)]
                     else:
                         # Choose the top 10 most frequent values
@@ -125,13 +127,14 @@ class DataScope:
         return new_ds
 
     def create_hds(self, temporal_dimensions: List[str] = None,
-                   measures: List[Tuple[str,str]] = None) -> 'HomogenousDataScope':
+                   measures: List[Tuple[str,str]] = None, n_bins: int = 10) -> 'HomogenousDataScope':
         """
         Generates a Homogeneous Data Scope (HDS) from a base data scope, using subspace, measure and breakdown
         extensions as defined in the MetaInsight paper.
 
         :param temporal_dimensions: The temporal dimensions to extend the breakdown with. Expected as a list of strings.
         :param measures: The measures to extend the measure with. Expected to be a dict {measure_column: aggregate_function}.
+        :param n_bins: The number of bins to use for numeric columns. Defaults to 10.
 
         :return: A HDS in the form of a list of DataScope objects.
         """
@@ -142,7 +145,7 @@ class DataScope:
             measures = {}
 
         # Subspace Extending
-        hds.extend(self._subspace_extend())
+        hds.extend(self._subspace_extend(n_bins=n_bins))
 
         # Measure Extending
         hds.extend(self._measure_extend(measures))

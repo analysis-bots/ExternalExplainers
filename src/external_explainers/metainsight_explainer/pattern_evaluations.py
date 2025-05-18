@@ -47,8 +47,6 @@ class PatternEvaluator:
         if isinstance(series.index, pd.DatetimeIndex):
             return True
         elif np.issubdtype(series.index.dtype, np.number):
-            # Sort the index first, just in case the series it is not sorted, but it does have meaningful time intervals
-            series.sort_index(inplace=True)
             # Check if the index is strictly increasing
             return np.all(np.diff(series.index) > 0)
         else:
@@ -207,6 +205,7 @@ class PatternEvaluator:
             return self.pattern_cache[cache_key]
 
         series = series[~series.isna()]  # Remove NaN values
+        series = series.sort_index()  # Sort the series by index
 
         if pattern_type == PatternType.UNIMODALITY:
             result = self.unimodality(series)

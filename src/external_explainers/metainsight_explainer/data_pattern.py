@@ -102,16 +102,16 @@ class BasicDataPattern:
                 if other_type == PatternType.OTHER or other_type == PatternType.NONE:
                     continue
                 if other_type != pattern_type:
-                    other_is_valid, _ = pattern_evaluator(aggregated_series, other_type)
+                    other_is_valid, highlight = pattern_evaluator(aggregated_series, other_type)
                     if other_is_valid:
-                        return BasicDataPattern(data_scope, PatternType.OTHER, None)
+                        return BasicDataPattern(data_scope, PatternType.OTHER, highlight)
 
         # If no pattern is found, return a 'No Pattern' type
         return BasicDataPattern(data_scope, PatternType.NONE, None)
 
     def create_hdp(self, pattern_type: PatternType, pattern_cache: Dict = None,
                    hds: List[DataScope] = None, temporal_dimensions: List[str] = None,
-                   measures: List[Tuple[str,str]] = None) -> Tuple['HomogenousDataPattern', Dict]:
+                   measures: List[Tuple[str,str]] = None, n_bins: int = 10) -> Tuple['HomogenousDataPattern', Dict]:
         """
         Generates a Homogenous Data Pattern (HDP) either from a given HDS or from the current DataScope.
 
@@ -120,9 +120,11 @@ class BasicDataPattern:
         :param hds: A list of DataScopes to create the HDP from. If None, it will be created from the current DataScope.
         :param temporal_dimensions: The temporal dimensions to extend the breakdown with. Expected as a list of strings. Only needed if hds is None.
         :param measures: The measures to extend the measure with. Expected to be a dict {measure_column: aggregate_function}. Only needed if hds is None.
+        :param n_bins: The number of bins to use for numeric columns. Defaults to 10.
+        :return: A tuple containing the created HomogenousDataPattern and the updated pattern cache.
         """
         if hds is None or len(hds) == 0:
-            hds = self.data_scope.create_hds(temporal_dimensions=temporal_dimensions, measures=measures)
+            hds = self.data_scope.create_hds(temporal_dimensions=temporal_dimensions, measures=measures, n_bins=n_bins)
         # All the data scopes in the HDS should have the same source_df, and it should be
         # the same as the source_df of the current DataScope (otherwise, this pattern should not be
         # the one producing the HDP with this HDS).

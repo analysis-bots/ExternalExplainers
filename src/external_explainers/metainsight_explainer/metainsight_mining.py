@@ -6,7 +6,7 @@ from queue import PriorityQueue
 import pandas as pd
 from matplotlib import pyplot as plt, gridspec
 
-from external_explainers.metainsight_explainer.data_pattern import BasicDataPattern, HomogenousDataPattern
+from external_explainers.metainsight_explainer.data_pattern import BasicDataPattern
 from external_explainers.metainsight_explainer.meta_insight import (MetaInsight,
                                                                     ACTIONABILITY_REGULARIZER_PARAM,
                                                                     BALANCE_PARAMETER,
@@ -128,13 +128,14 @@ class MetaInsightMiner:
 
     def mine_metainsights(self, source_df: pd.DataFrame,
                           dimensions: List[str],
-                          measures: List[Tuple[str,str]]) -> List[MetaInsight]:
+                          measures: List[Tuple[str,str]], n_bins: int = 10) -> List[MetaInsight]:
         """
         The main function to mine MetaInsights.
         Mines metainsights from the given data frame based on the provided dimensions, measures, and impact measure.
         :param source_df: The source DataFrame to mine MetaInsights from.
         :param dimensions: The dimensions to consider for mining.
         :param measures: The measures to consider for mining.
+        :param n_bins: The number of bins to use for numeric columns.
         :return:
         """
         metainsight_candidates = set()
@@ -154,10 +155,10 @@ class MetaInsightMiner:
             unique_values = source_df[filter_dim].dropna().unique()
             # If there are too many unique values, we bin them if it's a numeric column, or only choose the
             # top 10 most frequent values if it's a categorical column
-            if len(unique_values) > 10:
+            if len(unique_values) > n_bins:
                 if source_df[filter_dim].dtype in ['int64', 'float64']:
                     # Bin the numeric column
-                    bins = pd.cut(source_df[filter_dim], bins=10, retbins=True)[1]
+                    bins = pd.cut(source_df[filter_dim], bins=n_bins, retbins=True)[1]
                     unique_values = [f"{bins[i]} <= {filter_dim} <= {bins[i + 1]}" for i in range(len(bins) - 1)]
                 else:
                     # Choose the top 10 most frequent values
@@ -235,12 +236,18 @@ if __name__ == "__main__":
     end_time = time.time()
     print(f"Time taken: {end_time - start_time:.2f} seconds")
 
-    fig = plt.figure(figsize=(30, 25))
-    main_grid = gridspec.GridSpec(2, 2, figure=fig, wspace=0.2, hspace=0.3)
+    nrows = 4 // 4
+    ncols = 4 // 4
 
-    for i, mi in enumerate(top_metainsights[:4]):
-        row, col = i // 2, i % 2
-        mi.visualize_commonesses(fig=fig, subplot_spec=main_grid[row, col])
+    fig_len = 20 * ncols
+    fig_height = 15 * nrows
+
+    fig = plt.figure(figsize=(fig_len, fig_height))
+    main_grid = gridspec.GridSpec(nrows, ncols, figure=fig, wspace=0.2, hspace=0.3)
+
+    for i, mi in enumerate(top_metainsights[:1]):
+        row, col = i // nrows, i % ncols
+        mi.visualize(fig=fig, subplot_spec=main_grid[row, col])
 
     # plt.tight_layout()
     plt.show()

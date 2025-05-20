@@ -49,6 +49,28 @@ class PatternInterface(ABC):
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
+    @staticmethod
+    def prepare_patterns_for_visualization(patterns):
+        """
+        Prepare patterns for visualization by creating a consistent numeric position mapping.
+        Returns a mapping of original indices to numeric positions for plotting.
+
+        :param patterns: List of pattern objects with source_series attribute
+        :return: Dictionary mapping original indices to positions and sorted unique indices
+        """
+        # Collect all unique indices from all patterns
+        all_indices = set()
+        for pattern in patterns:
+            all_indices.update(pattern.source_series.index)
+
+        # Sort indices in their natural order - this works for dates, numbers, etc.
+        sorted_indices = sorted(list(all_indices))
+
+        # Create mapping from original index to position (0, 1, 2, ...)
+        index_to_position = {idx: pos for pos, idx in enumerate(sorted_indices)}
+
+        return index_to_position, sorted_indices
+
 
     @staticmethod
     @abstractmethod
@@ -62,8 +84,12 @@ class PatternInterface(ABC):
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
+    __name__ = "PatternInterface"
+
 
 class UnimodalityPattern(PatternInterface):
+
+    __name__ = "Unimodality pattern"
 
     @staticmethod
     def visualize_many(plt_ax, patterns: List['UnimodalityPattern'], labels: List[str], title: str = None) -> None:
@@ -77,6 +103,25 @@ class UnimodalityPattern(PatternInterface):
         # Define a color cycle for lines
         colors = plt.cm.tab10.colors
 
+        # Get a union of the indexes of all patterns. We do this because some patterns may be missing
+        # some of the indexes due to filters, which can cause missing x axis labels as a result.
+        all_indexes = set()
+        for pattern in patterns:
+            # Convert all indexes to strings, to avoid issues with type mismatches causing exceptions
+            all_indexes.update(pattern.source_series.index)
+
+        all_indexes = list(all_indexes)
+        all_indexes.sort()
+
+        # Add the missing parts of the index
+        for pattern in patterns:
+            new_series = pd.Series(index=all_indexes, dtype=pattern.source_series.dtype)
+            for idx in all_indexes:
+                if idx in pattern.source_series.index:
+                    new_series[idx] = pattern.source_series[idx]
+            pattern.source_series = new_series
+
+
         for i, (pattern, label) in enumerate(zip(patterns, labels)):
             color = colors[i % len(colors)]
 
@@ -85,10 +130,10 @@ class UnimodalityPattern(PatternInterface):
 
             # Highlight the peak or valley with a marker
             if pattern.type.lower() == 'peak':
-                plt_ax.plot(pattern.highlight_index, pattern.source_series[pattern.highlight_index],
+                plt_ax.plot(pattern.highlight_index, pattern.source_series.loc[pattern.highlight_index],
                             'o', color=color, markersize=8, markeredgecolor='black')
             elif pattern.type.lower() == 'valley':
-                plt_ax.plot(pattern.highlight_index, pattern.source_series[pattern.highlight_index],
+                plt_ax.plot(pattern.highlight_index, pattern.source_series.loc[pattern.highlight_index],
                             'v', color=color, markersize=8, markeredgecolor='black')
 
         # Set labels and title
@@ -103,6 +148,67 @@ class UnimodalityPattern(PatternInterface):
 
         # Rotate x-axis tick labels if needed
         plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=16)
+
+    @staticmethod
+    def visualize_many(plt_ax, patterns: List['UnimodalityPattern'], labels: List[str], title: str = None) -> None:
+        """
+        Visualize multiple unimodality patterns on a single plot.
+
+        :param plt_ax: Matplotlib axes to plot on
+        :param patterns: List of UnimodalityPattern objects
+        :param labels: List of labels for each pattern (e.g. data scope descriptions)
+        """
+        # Define a color cycle for lines
+        colors = plt.cm.tab10.colors
+
+        # Prepare patterns with consistent numeric positions
+        index_to_position, sorted_indices = PatternInterface.prepare_patterns_for_visualization(patterns)
+
+        # Plot each pattern
+        for i, (pattern, label) in enumerate(zip(patterns, labels)):
+            color = colors[i % len(colors)]
+
+            # Map series to numeric positions for plotting
+            x_positions = [index_to_position[idx] for idx in pattern.source_series.index]
+            values = pattern.source_series.values
+
+            # Plot the series with a unique color
+            plt_ax.plot(x_positions, values, color=color, alpha=0.7, label=label)
+
+            # Highlight the peak or valley with a marker
+            if pattern.type.lower() == 'peak' and pattern.highlight_index in pattern.source_series.index:
+                highlight_pos = index_to_position[pattern.highlight_index]
+                plt_ax.plot(highlight_pos, pattern.source_series.loc[pattern.highlight_index],
+                            'o', color=color, markersize=8, markeredgecolor='black')
+            elif pattern.type.lower() == 'valley' and pattern.highlight_index in pattern.source_series.index:
+                highlight_pos = index_to_position[pattern.highlight_index]
+                plt_ax.plot(highlight_pos, pattern.source_series.loc[pattern.highlight_index],
+                            'v', color=color, markersize=8, markeredgecolor='black')
+
+        # Set x-ticks to show original index values
+        if sorted_indices:
+            # For large datasets, show fewer tick labels
+            step = max(1, len(sorted_indices) // 10)
+            positions = list(range(0, len(sorted_indices), step))
+            tick_labels = [str(sorted_indices[pos]) for pos in positions]
+
+            plt_ax.set_xticks(positions)
+            plt_ax.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=16)
+
+        # Set labels and title
+        plt_ax.set_xlabel(patterns[0].index_name if patterns else 'Index')
+        plt_ax.set_ylabel(patterns[0].value_name if patterns else 'Value')
+        plt_ax.set_title(
+            f"Multiple {patterns[0].type if patterns else 'Unimodality'} Patterns" if title is None else title)
+
+        # Add legend
+        plt_ax.legend()
+
+        # Rotate x-axis tick labels
+        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=16)
+
+        # Ensure bottom margin for x-labels
+        plt_ax.figure.subplots_adjust(bottom=0.15)
 
     def __init__(self, source_series: pd.Series, type: Literal['Peak', 'Valley'], highlight_index, value_name: str=None):
         """
@@ -181,6 +287,8 @@ class UnimodalityPattern(PatternInterface):
 
 class TrendPattern(PatternInterface):
 
+    __name__ = "Trend pattern"
+
     @staticmethod
     def visualize_many(plt_ax, patterns: List['TrendPattern'], labels: List[str], title: str = None,
                        show_data: bool = True, alpha_data: float = 0.6) -> None:
@@ -197,41 +305,53 @@ class TrendPattern(PatternInterface):
         # Define a color cycle for lines
         colors = plt.cm.tab10.colors
 
-        # Define line styles for additional differentiation. This is taken from matplotlib's
-        # docs: https://matplotlib.org/stable/gallery/lines_bars_and_markers/linestyles.html
+        # Define line styles for additional differentiation.
+        # Taken from the matplotlib docs.
         line_styles = [
             ('loosely dotted', (0, (1, 10))),
             ('dotted', (0, (1, 5))),
             ('densely dotted', (0, (1, 1))),
-
             ('long dash with offset', (5, (10, 3))),
             ('loosely dashed', (0, (5, 10))),
             ('dashed', (0, (5, 5))),
             ('densely dashed', (0, (5, 1))),
-
             ('loosely dashdotted', (0, (3, 10, 1, 10))),
             ('dashdotted', (0, (3, 5, 1, 5))),
             ('densely dashdotted', (0, (3, 1, 1, 1))),
-
             ('dashdotdotted', (0, (3, 5, 1, 5, 1, 5))),
             ('loosely dashdotdotted', (0, (3, 10, 1, 10, 1, 10))),
             ('densely dashdotdotted', (0, (3, 1, 1, 1, 1, 1)))]
 
+        # Prepare patterns with consistent numeric positions
+        index_to_position, sorted_indices = PatternInterface.prepare_patterns_for_visualization(patterns)
+
         for i, (pattern, label) in enumerate(zip(patterns, labels)):
             color = colors[i % len(colors)]
-            line_style = line_styles[i  % len(line_styles)][1]
+            line_style = line_styles[i % len(line_styles)][1]
+
+            # Map series to numeric positions for plotting
+            x_positions = [index_to_position[idx] for idx in pattern.source_series.index]
+            values = pattern.source_series.values
 
             # Plot the raw data with reduced opacity if requested
             if show_data:
-                plt_ax.plot(pattern.source_series, color=color, alpha=alpha_data, linewidth=1)
+                plt_ax.plot(x_positions, values, color=color, alpha=alpha_data, linewidth=1)
 
-            # Get x range for trend line
-            x_numeric = np.arange(len(pattern.source_series))
-
-            # Plot the trend line
+            # Plot the trend line using numeric positions
             trend_label = f"{label}"
-            plt_ax.plot(pattern.source_series.index, pattern.slope * x_numeric + pattern.intercept,
+            x_range = np.arange(len(sorted_indices))
+            plt_ax.plot(x_range, pattern.slope * x_range + pattern.intercept,
                         linestyle=line_style, color=color, linewidth=2, label=trend_label)
+
+        # Set x-ticks to show original index values
+        if sorted_indices:
+            # For large datasets, show fewer tick labels
+            step = max(1, len(sorted_indices) // 10)
+            positions = list(range(0, len(sorted_indices), step))
+            tick_labels = [str(sorted_indices[pos]) for pos in positions]
+
+            plt_ax.set_xticks(positions)
+            plt_ax.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=16)
 
         # Set labels and title
         if patterns:
@@ -244,10 +364,7 @@ class TrendPattern(PatternInterface):
         # Rotate x-axis tick labels
         plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=16)
 
-        # First, adjust the subplot parameters to make room for the legend
-        #plt_ax.figure.subplots_adjust(right=0.5)  # Reserve 50% of width for legend
-
-        # Place legend outside the plot
+        # Add legend
         plt_ax.legend()
 
         # Ensure bottom margin for x-labels
@@ -330,88 +447,95 @@ class TrendPattern(PatternInterface):
 
 class OutlierPattern(PatternInterface):
 
+    __name__ = "Outlier pattern"
+
     @staticmethod
     def visualize_many(plt_ax, patterns: List['OutlierPattern'], labels: List[str], title: str = None,
                        show_regular: bool = True, alpha_regular: float = 0.5, alpha_outliers: float = 0.9) -> None:
         """
         Visualize multiple outlier patterns on a single plot.
-
-        :param plt_ax: Matplotlib axes to plot on
-        :param patterns: List of OutlierPattern objects
-        :param labels: List of labels for each pattern
-        :param title: Optional custom title for the plot
-        :param show_regular: Whether to show regular (non-outlier) data points
-        :param alpha_regular: Opacity for regular data points
-        :param alpha_outliers: Opacity for outlier points
         """
-        # Define a color cycle for different datasets
         colors = plt.cm.tab10.colors
+        regular_marker = 'o'
+        outlier_marker = 'X'
 
-        # Define marker styles
-        regular_marker = 'o'  # Circle for regular points
-        outlier_marker = 'X'  # X mark for outliers
+        # Prepare patterns with consistent numeric positions
+        index_to_position, sorted_indices = PatternInterface.prepare_patterns_for_visualization(patterns)
 
-        # Create a legend handle for the outlier explanation
+        # Plot each pattern
+        for i, (pattern, label) in enumerate(zip(patterns, labels)):
+            color = colors[i % len(colors)]
+
+            # Plot regular data points
+            if show_regular:
+                # Get positions and values for plotting
+                positions = [index_to_position[idx] for idx in pattern.source_series.index]
+                values = pattern.source_series.values
+
+                plt_ax.scatter(
+                    positions,
+                    values,
+                    color=color,
+                    alpha=alpha_regular,
+                    marker=regular_marker,
+                    s=30,
+                    label=label
+                )
+            else:
+                plt_ax.scatter([], [], color=color, marker=regular_marker, s=30, label=label)
+
+            # Plot outliers
+            if pattern.outlier_indexes is not None and len(pattern.outlier_indexes) > 0:
+                # Map outliers to positions
+                outlier_positions = []
+                outlier_values = []
+
+                for idx in pattern.outlier_indexes:
+                    if idx in pattern.source_series.index:
+                        outlier_positions.append(index_to_position[idx])
+                        outlier_values.append(pattern.source_series.loc[idx])
+
+                plt_ax.scatter(
+                    outlier_positions,
+                    outlier_values,
+                    color=color,
+                    alpha=alpha_outliers,
+                    marker=outlier_marker,
+                    s=100,
+                    edgecolors='black',
+                    linewidth=1.5
+                )
+
+        # Set x-ticks to show original index values
+        if sorted_indices:
+            # For large datasets, show fewer tick labels
+            step = max(1, len(sorted_indices) // 10)
+            positions = list(range(0, len(sorted_indices), step))
+            labels = [str(sorted_indices[pos]) for pos in positions]
+
+            plt_ax.set_xticks(positions)
+            plt_ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=16)
+
+        # Setup the rest of the plot
         from matplotlib.lines import Line2D
         custom_lines = [Line2D([0], [0], marker=outlier_marker, color='black',
                                markerfacecolor='black', markersize=10, linestyle='')]
         custom_labels = ['Outliers (marked with X)']
-
-        # Plot each dataset
-        for i, (pattern, label) in enumerate(zip(patterns, labels)):
-            color = colors[i % len(colors)]
-
-            # Plot regular data points if requested
-            if show_regular:
-                plt_ax.scatter(
-                    pattern.source_series.index,
-                    pattern.source_series,
-                    color=color,
-                    alpha=alpha_regular,
-                    marker=regular_marker,
-                    s=30,  # Size
-                    label=label
-                )
-            else:
-                # Still add to legend even if not showing points
-                plt_ax.scatter([], [], color=color, marker=regular_marker, s=30, label=label)
-
-            # Plot outliers with the same color but a different marker
-            if pattern.outlier_indexes is not None and len(pattern.outlier_indexes) > 0:
-                plt_ax.scatter(
-                    pattern.outlier_indexes,
-                    pattern.outlier_values,
-                    color=color,
-                    alpha=alpha_outliers,
-                    marker=outlier_marker,
-                    s=100,  # Larger size for outliers
-                    edgecolors='black',  # Black edge for visibility
-                    linewidth=1.5
-                )
 
         # Set labels and title
         if patterns:
             plt_ax.set_xlabel(patterns[0].source_series.index.name if patterns[0].source_series.index.name else 'Index')
             plt_ax.set_ylabel(patterns[0].value_name if patterns[0].value_name else 'Value')
 
-        default_title = "Multiple Outlier Patterns"
-        plt_ax.set_title(title if title is not None else default_title)
+        plt_ax.set_title(title if title is not None else "Multiple Outlier Patterns")
 
-        # Rotate x-axis tick labels if needed
-        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=16)
-
-        # Get the current handles and labels
+        # Setup legend
         handles, labels_current = plt_ax.get_legend_handles_labels()
-
-        # Combine with custom outlier explanation
         all_handles = handles + custom_lines
         all_labels = labels_current + custom_labels
-
-        # Adjust subplot parameters to make room for the legend
-        #plt_ax.figure.subplots_adjust(right=0.5)  # Reserve 30% of width for legend
-
-        # Place legend outside the plot with combined handles/labels
         plt_ax.legend(all_handles, all_labels)
+
+        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=16)
 
         # Ensure bottom margin for x-labels
         plt_ax.figure.subplots_adjust(bottom=0.15)
@@ -488,6 +612,8 @@ class OutlierPattern(PatternInterface):
 
 class CyclePattern(PatternInterface):
 
+    __name__ = "Cycle pattern"
+
     @staticmethod
     def visualize_many(plt_ax, patterns: List['CyclePattern'], labels: List[str], title: str = None,
                        alpha_cycles: float = 0.3, line_alpha: float = 0.8) -> None:
@@ -502,10 +628,12 @@ class CyclePattern(PatternInterface):
         :param line_alpha: Opacity for the time series lines
         """
         import numpy as np
-        import pandas as pd
 
         # Define a color cycle for lines
         colors = plt.cm.tab10.colors
+
+        # Prepare patterns with consistent numeric positions
+        index_to_position, sorted_indices = PatternInterface.prepare_patterns_for_visualization(patterns)
 
         # Color for common cycles
         common_cycle_color = 'darkviolet'
@@ -520,46 +648,36 @@ class CyclePattern(PatternInterface):
         for pattern in patterns:
             if hasattr(pattern, 'cycles') and not pattern.cycles.empty:
                 for _, cycle in pattern.cycles.iterrows():
-                    all_cycle_data.append((cycle['t_start'], cycle['t_end']))
+                    # Map to numeric positions
+                    t_start_pos = index_to_position.get(cycle['t_start'], None)
+                    t_end_pos = index_to_position.get(cycle['t_end'], None)
+                    if t_start_pos is not None and t_end_pos is not None:
+                        all_cycle_data.append((t_start_pos, t_end_pos))
 
-        # Find common cycle periods
+        # Find common cycle periods (using numeric positions)
         common_periods = []
         if len(patterns) > 1 and all_cycle_data:
-            # Handle datetime objects by creating a time_points array differently
-            # Get all unique timestamps from starts and ends
-            all_timestamps = sorted(list(set([t for start, end in all_cycle_data for t in [start, end]])))
+            # Get all unique numeric positions from starts and ends
+            all_positions = sorted(list(set([pos for start, end in all_cycle_data for pos in [start, end]])))
 
-            # Create additional points between timestamps if needed
-            if len(all_timestamps) > 1:
-                time_points = []
-                for i in range(len(all_timestamps) - 1):
-                    # Add the current timestamp
-                    time_points.append(all_timestamps[i])
-
-                    # Add intermediate points if the gap is large enough
-                    curr = pd.Timestamp(all_timestamps[i])
-                    next_ts = pd.Timestamp(all_timestamps[i + 1])
-                    if (next_ts - curr).total_seconds() > 60:  # If gap is more than a minute
-                        # Add 10 intermediate points
-                        delta = (next_ts - curr) / 11
-                        for j in range(1, 11):
-                            time_points.append(curr + delta * j)
-
-                # Add the last timestamp
-                time_points.append(all_timestamps[-1])
+            # Create additional points between positions if needed
+            if len(all_positions) > 1:
+                position_points = np.linspace(min(all_positions), max(all_positions), 100)
             else:
-                time_points = all_timestamps
+                position_points = all_positions
 
-            # For each time point, check if it falls within a cycle for each pattern
-            overlap_counts = np.zeros(len(time_points))
+            # For each position point, check if it falls within a cycle for each pattern
+            overlap_counts = np.zeros(len(position_points))
 
             for pattern in patterns:
                 if hasattr(pattern, 'cycles') and not pattern.cycles.empty:
-                    pattern_mask = np.zeros(len(time_points), dtype=bool)
+                    pattern_mask = np.zeros(len(position_points), dtype=bool)
                     for _, cycle in pattern.cycles.iterrows():
-                        start, end = cycle['t_start'], cycle['t_end']
-                        pattern_mask = pattern_mask | (
-                                    (np.array(time_points) >= start) & (np.array(time_points) <= end))
+                        t_start_pos = index_to_position.get(cycle['t_start'], None)
+                        t_end_pos = index_to_position.get(cycle['t_end'], None)
+                        if t_start_pos is not None and t_end_pos is not None:
+                            pattern_mask = pattern_mask | (
+                                    (position_points >= t_start_pos) & (position_points <= t_end_pos))
                     overlap_counts += pattern_mask
 
             # Find regions where all patterns have a cycle
@@ -572,14 +690,18 @@ class CyclePattern(PatternInterface):
                 end_indices = np.where(changes == -1)[0] - 1
 
                 for start_idx, end_idx in zip(start_indices, end_indices):
-                    common_periods.append((time_points[start_idx], time_points[end_idx]))
+                    common_periods.append((position_points[start_idx], position_points[end_idx]))
 
         # Plot each pattern
         for i, (pattern, label) in enumerate(zip(patterns, labels)):
             color = colors[i % len(colors)]
 
+            # Map series to numeric positions for plotting
+            x_positions = [index_to_position[idx] for idx in pattern.source_series.index]
+            values = pattern.source_series.values
+
             # Plot the time series
-            line, = plt_ax.plot(pattern.source_series, color=color, alpha=line_alpha, linewidth=2)
+            line, = plt_ax.plot(x_positions, values, color=color, alpha=line_alpha, linewidth=2, label=label)
             legend_handles.append(line)
             legend_labels.append(label)
 
@@ -589,16 +711,22 @@ class CyclePattern(PatternInterface):
                 cycle_patch = plt.Rectangle((0, 0), 1, 1, color=color, alpha=alpha_cycles)
 
                 for _, cycle in pattern.cycles.iterrows():
-                    # Highlight the cycle only if it is not in the common cycles - we highlight those later.
-                    if not any(
-                            start <= cycle['t_start'] <= end and start <= cycle['t_end'] <= end
-                            for start, end in common_periods
-                    ):
-                        t_start = cycle['t_start']
-                        t_end = cycle['t_end']
+                    t_start_pos = index_to_position.get(cycle['t_start'], None)
+                    t_end_pos = index_to_position.get(cycle['t_end'], None)
 
+                    if t_start_pos is None or t_end_pos is None:
+                        continue
+
+                    # Check if this cycle overlaps with common cycles
+                    is_common = any(
+                        start <= t_start_pos <= end and start <= t_end_pos <= end
+                        for start, end in common_periods
+                    )
+
+                    # Highlight the cycle only if it is not in the common cycles
+                    if not is_common:
                         # Highlight the cycle region
-                        plt_ax.axvspan(t_start, t_end, color=color, alpha=alpha_cycles)
+                        plt_ax.axvspan(t_start_pos, t_end_pos, color=color, alpha=alpha_cycles)
 
         # Highlight common cycles
         if common_periods:
@@ -610,6 +738,16 @@ class CyclePattern(PatternInterface):
             legend_handles.append(common_patch)
             legend_labels.append('Common cycles (all patterns)')
 
+        # Set x-ticks to show original index values
+        if sorted_indices:
+            # For large datasets, show fewer tick labels
+            step = max(1, len(sorted_indices) // 10)
+            positions = list(range(0, len(sorted_indices), step))
+            tick_labels = [str(sorted_indices[pos]) for pos in positions]
+
+            plt_ax.set_xticks(positions)
+            plt_ax.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=16)
+
         # Set labels and title
         if patterns:
             plt_ax.set_xlabel(patterns[0].source_series.index.name if patterns[0].source_series.index.name else 'Index')
@@ -618,14 +756,10 @@ class CyclePattern(PatternInterface):
         default_title = "Multiple Cycle Patterns"
         plt_ax.set_title(title if title is not None else default_title)
 
-        # Rotate x-axis tick labels
-        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=16)
-
-        # Adjust subplot parameters to make room for the legend
-        #plt_ax.figure.subplots_adjust(right=0.5)  # Reserve 50% of width for legend
-
-        # Place legend outside the plot
+        # Add legend
         plt_ax.legend(legend_handles, legend_labels)
+
+        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=16)
 
         # Ensure bottom margin for x-labels
         plt_ax.figure.subplots_adjust(bottom=0.15)

@@ -333,7 +333,7 @@ class MetaInsight:
                 measures_str.append(f"{{{measure[0]}: {measure[1]}}}")
             else:
                 measures_str.append(measure)
-        title += f"when grouping by {', '.join(breakdowns)} and aggregating by {' or '.join(measures_str)}"
+        title += f"when grouping by {' or '.join(breakdowns)} and aggregating by {' or '.join(measures_str)}"
         title = textwrap.wrap(title, 70)
         title = "\n".join(title)
         return title
@@ -342,6 +342,8 @@ class MetaInsight:
         """
         Visualize only the commonness sets of the metainsight, with each set in its own column.
         Within each column, patterns are arranged in a grid with at most 3 patterns per column.
+        This was the initial visualization method, but it was too cluttered and not very useful, so it was renamed and
+        replaced with the more compact and informative visualize method.
 
         :param fig: Optional figure to plot on (or create a new one if None)
         :param subplot_spec: Optional subplot specification to plot within
@@ -500,7 +502,7 @@ class MetaInsight:
             # Set up the right side for exceptions with one row per exception type
             right_grid = gridspec.GridSpecFromSubplotSpec(len(self.exceptions), 1,
                                                           subplot_spec=outer_grid[0, 1],
-                                                          hspace=0.4)  # Add more vertical space
+                                                          hspace=0.5)  # Add more vertical space
 
             # Process each exception category
             for i, (category, exception_patterns) in enumerate(self.exceptions.items()):
@@ -539,18 +541,19 @@ class MetaInsight:
                     # Create a nested grid for this row with more space
                     type_grid = gridspec.GridSpecFromSubplotSpec(2, 1,
                                                                  subplot_spec=right_grid[i, 0],
-                                                                 height_ratios=[1, 5], hspace=0.5, wspace=0.3)
+                                                                 height_ratios=[1, 15], hspace=0.5, wspace=0.3)
 
                     # Add title for the category in the first row
                     title_ax = fig.add_subplot(type_grid[0, 0])
                     title_ax.axis('off')
                     title_ax.set_facecolor((0.8, 0.9, 1.0, 0.2))
-                    title_ax.text(0.5, 0.5,
-                                  f"Different patterns types detected ({len(exception_patterns)})",
+                    title_ax.text(0.5, 0,
+                                  s=f"Different patterns types detected ({len(exception_patterns)})",
                                   horizontalalignment='center',
                                   verticalalignment='center',
-                                  fontsize=12,
-                                  fontweight='bold')
+                                  fontsize=16,
+                                  fontweight='bold'
+                    )
 
                     # Create subplots for each pattern in the second row
                     num_patterns = len(exception_patterns)
@@ -559,7 +562,7 @@ class MetaInsight:
                     n_rows = math.ceil(num_patterns / n_cols)
                     pattern_grid = gridspec.GridSpecFromSubplotSpec(n_rows, n_cols,
                                                                     subplot_spec=type_grid[1, 0],
-                                                                    wspace=0.4)  # More horizontal space
+                                                                    wspace=0.4, hspace=0.4)  # More horizontal space
 
 
                     for j, pattern in enumerate(exception_patterns):
@@ -571,29 +574,12 @@ class MetaInsight:
                         # Format labels for title
                         subspace_str = ", ".join([f"{key}={val}" for key, val in pattern.data_scope.subspace.items()])
 
-                        title = ""
-                        if pattern.pattern_type == PatternType.UNIMODALITY:
-                            title += "Unimodality found for "
-                        if pattern.pattern_type == PatternType.TREND:
-                            title += "Trend found for "
-                        if pattern.pattern_type == PatternType.OUTLIER:
-                            title += "Outliers found for "
-                        if pattern.pattern_type == PatternType.CYCLE:
-                            title += "Cycles found for "
-
-                        title += f"{subspace_str},"
-                        title = textwrap.fill(title, 30)  # Wrap title to prevent overflow
+                        title = f"{pattern.highlight.__name__} when {subspace_str}"
+                        title = "\n".join(textwrap.wrap(title, 30))  # Wrap title to prevent overflow
 
                         # Visualize the individual pattern with internal legend
                         if pattern.highlight:
-                            # Custom visualization with compact legend
-                            def individual_exception_visualize(plt_ax):
-                                pattern.highlight.visualize(plt_ax=plt_ax)
-                                if hasattr(plt_ax, 'legend'):
-                                    plt_ax.legend(loc='lower center', fontsize=10)
-
-                            individual_exception_visualize(ax)
-                            ax.set_title(title, fontsize=10)
+                            pattern.highlight.visualize(ax, title=title)
 
         # Allow more space for the figure elements
         plt.subplots_adjust(bottom=0.15, top=0.9)  # Adjust bottom and top margins

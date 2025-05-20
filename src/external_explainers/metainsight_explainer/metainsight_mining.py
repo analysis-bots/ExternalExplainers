@@ -130,7 +130,8 @@ class MetaInsightMiner:
     def mine_metainsights(self, source_df: pd.DataFrame,
                           dimensions: List[str],
                           measures: List[Tuple[str,str]], n_bins: int = 10,
-                          extend_by_measure: bool = False
+                          extend_by_measure: bool = False,
+                          extend_by_breakdown: bool = False
                           ) -> List[MetaInsight]:
         """
         The main function to mine MetaInsights.
@@ -139,9 +140,13 @@ class MetaInsightMiner:
         :param dimensions: The dimensions to consider for mining.
         :param measures: The measures to consider for mining.
         :param n_bins: The number of bins to use for numeric columns.
+        :param extend_by_measure: Whether to extend the data scope by measure. Settings this to true can cause strange results,
+        because we will consider multiple aggregation functions on the same filter dimension.
+        :param extend_by_breakdown: Whether to extend the data scope by breakdown. Settings this to true can cause strange results,
+        because we will consider multiple different groupby dimensions on the same filter dimension, which can lead to
+        having a metainsight on 2 disjoint sets of indexes.
         :return:
         """
-        metainsight_candidates = set()
         datascope_cache = {}
         pattern_cache = {}
         hdp_queue = PriorityQueue()
@@ -189,7 +194,7 @@ class MetaInsightMiner:
                         # If a valid basic pattern is found, extend the data scope to generate HDS
                         hdp, pattern_cache = base_dp.create_hdp(temporal_dimensions=dimensions, measures=measures,
                                                                 pattern_type=pattern_type, pattern_cache=pattern_cache,
-                                                                extend_by_measure=extend_by_measure)
+                                                                extend_by_measure=extend_by_measure, extend_by_breakdown=extend_by_breakdown)
 
                         # Pruning 1 - if the HDP is unlikely to form a commonness, discard it
                         if len(hdp) < len(hdp.data_scopes) * self.min_commonness:
@@ -204,6 +209,7 @@ class MetaInsightMiner:
                         hdp_queue.put((hdp, pattern_type))
 
         processed_hdp_count = 0
+        metainsight_candidates = {}
         while not hdp_queue.empty():
             hdp, pattern_type = hdp_queue.get()
             processed_hdp_count += 1
@@ -214,7 +220,13 @@ class MetaInsightMiner:
             if metainsight:
                 # Calculate and assign the score
                 metainsight.compute_score(datascope_cache)
-                metainsight_candidates.add(metainsight)
+                if metainsight in metainsight_candidates:
+                    other_metainsight = metainsight_candidates[metainsight]
+                    if metainsight.score > other_metainsight.score:
+                        # If the new metainsight is better, replace the old one
+                        metainsight_candidates[metainsight] = metainsight
+                else:
+                    metainsight_candidates[metainsight] = metainsight
 
         return self.rank_metainsights(list(metainsight_candidates))
 

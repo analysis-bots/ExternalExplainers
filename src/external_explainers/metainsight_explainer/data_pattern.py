@@ -75,19 +75,19 @@ class BasicDataPattern:
         # Group by breakdown dimension and aggregate measure
         if data_scope.breakdown not in filtered_df.columns:
             # Cannot group by breakdown if it's not in the filtered data
-            return BasicDataPattern(data_scope, PatternType.NONE, None)
+            return [BasicDataPattern(data_scope, PatternType.NONE, None)]
 
         measure_col, agg_func = data_scope.measure
         if measure_col not in filtered_df.columns:
             # Cannot aggregate if measure column is not in the data
-            return BasicDataPattern(data_scope, PatternType.NONE, None)
+            return [BasicDataPattern(data_scope, PatternType.NONE, None)]
 
         try:
             # Perform the aggregation
             aggregated_series = filtered_df.groupby(data_scope.breakdown)[measure_col].agg(agg_func)
         except Exception as e:
             print(f"Error during aggregation for {data_scope}: {e}")
-            return BasicDataPattern(data_scope, PatternType.NONE, None)
+            return [BasicDataPattern(data_scope, PatternType.NONE, None)]
 
         # Ensure series is sortable if breakdown is temporal
         if df[data_scope.breakdown].dtype in ['datetime64[ns]', 'period[M]', 'int64']:
@@ -122,7 +122,7 @@ class BasicDataPattern:
     def create_hdp(self, pattern_type: PatternType, pattern_cache: Dict = None,
                    hds: List[DataScope] = None, temporal_dimensions: List[str] = None,
                    measures: List[Tuple[str,str]] = None, n_bins: int = 10,
-                   extend_by_measure: bool = False) -> Tuple['HomogenousDataPattern', Dict]:
+                   extend_by_measure: bool = False, extend_by_breakdown: bool = False) -> Tuple['HomogenousDataPattern', Dict]:
         """
         Generates a Homogenous Data Pattern (HDP) either from a given HDS or from the current DataScope.
 
@@ -132,11 +132,14 @@ class BasicDataPattern:
         :param temporal_dimensions: The temporal dimensions to extend the breakdown with. Expected as a list of strings. Only needed if hds is None.
         :param measures: The measures to extend the measure with. Expected to be a dict {measure_column: aggregate_function}. Only needed if hds is None.
         :param n_bins: The number of bins to use for numeric columns. Defaults to 10.
+        :param extend_by_measure: Whether to extend the hds by measure. Defaults to False.
+        :param extend_by_breakdown: Whether to extend the hds by breakdown. Defaults to False.
         :return: A tuple containing the created HomogenousDataPattern and the updated pattern cache.
         """
         if hds is None or len(hds) == 0:
             hds = self.data_scope.create_hds(dims=temporal_dimensions, measures=measures,
-                                             n_bins=n_bins, extend_by_measure=extend_by_measure)
+                                             n_bins=n_bins, extend_by_measure=extend_by_measure,
+                                             extend_by_breakdown=extend_by_breakdown)
         # All the data scopes in the HDS should have the same source_df, and it should be
         # the same as the source_df of the current DataScope (otherwise, this pattern should not be
         # the one producing the HDP with this HDS).

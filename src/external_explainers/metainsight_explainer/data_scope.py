@@ -126,7 +126,9 @@ class DataScope:
 
     def create_hds(self, dims: List[str] = None,
                    measures: List[Tuple[str,str]] = None, n_bins: int = 10,
-                   extend_by_measure: bool = False) -> 'HomogenousDataScope':
+                   extend_by_measure: bool = False,
+                   extend_by_breakdown: bool = False,
+                   ) -> 'HomogenousDataScope':
         """
         Generates a Homogeneous Data Scope (HDS) from a base data scope, using subspace, measure and breakdown
         extensions as defined in the MetaInsight paper.
@@ -136,6 +138,8 @@ class DataScope:
         :param n_bins: The number of bins to use for numeric columns. Defaults to 10.
         :param extend_by_measure: Whether to use measure extension or not. Defaults to False. Setting this to true
         can lead to metainsights with mixed aggregation functions, which may often be undesirable.
+        :param extend_by_breakdown: Whether to use breakdown extension or not. Defaults to False. Setting this to True
+        can lead to metainsights with several disjoint indexes, which may often be undesirable.
 
         :return: A HDS in the form of a list of DataScope objects.
         """
@@ -154,7 +158,8 @@ class DataScope:
             hds.extend(self._measure_extend(measures))
 
         # Breakdown Extending
-        hds.extend(self._breakdown_extend(dims))
+        if extend_by_breakdown:
+            hds.extend(self._breakdown_extend(dims))
 
         return HomogenousDataScope(hds)
 

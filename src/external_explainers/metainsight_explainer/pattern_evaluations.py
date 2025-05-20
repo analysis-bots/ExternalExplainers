@@ -1,10 +1,13 @@
+import typing
 from enum import Enum
+from typing import List
+
 import pandas as pd
 import numpy as np
 from diptest import diptest
 from scipy.stats import zscore
 from external_explainers.metainsight_explainer.patterns import UnimodalityPattern, TrendPattern, OutlierPattern, \
-    CyclePattern
+    CyclePattern, PatternInterface
 import pymannkendall as mk
 from cydets.algorithm import detect_cycles
 from singleton_decorator import singleton
@@ -53,7 +56,7 @@ class PatternEvaluator:
             return False
 
 
-    def unimodality(self, series: pd.Series) -> (bool, UnimodalityPattern | None):
+    def unimodality(self, series: pd.Series) -> (bool, List[UnimodalityPattern] | None):
         """
         Evaluates if the series is unimodal using Hartigan's Dip test.
         If it is, finds the peak or valley.
@@ -86,13 +89,15 @@ class PatternEvaluator:
         if (max_value_index is not None and (max_value_index == series.index[0] or max_value_index == series.index[-1])) and \
                 (min_value_index is not None and (min_value_index == series.index[0] or min_value_index == series.index[-1])):
             return False, None
-        index_name = series.index.name
+        to_return = []
+        # If both a peak and a valley exists, we can return both. If none exists, we return None.
         if max_value_index:
-            return True, UnimodalityPattern(series, 'Peak', max_value_index, value_name=series.name)
+            to_return.append(UnimodalityPattern(series, 'Peak', max_value_index, value_name=series.name))
         elif min_value_index:
-            return True, UnimodalityPattern(series, 'Valley', min_value_index, value_name=series.name)
-        else:
+            to_return.append(UnimodalityPattern(series, 'Valley', min_value_index, value_name=series.name))
+        if len(to_return) == 0:
             return False, None
+        return True, frozenset(to_return)
 
 
 
@@ -191,7 +196,7 @@ class PatternEvaluator:
 
 
 
-    def __call__(self, series: pd.Series, pattern_type: PatternType) -> (bool, str):
+    def __call__(self, series: pd.Series, pattern_type: PatternType) -> (bool, frozenset[PatternInterface] | None):
         """
         Calls the appropriate pattern evaluation method based on the pattern type.
         :param series: The series to evaluate.
@@ -217,5 +222,13 @@ class PatternEvaluator:
             result = self.cycle(series)
         else:
             raise ValueError(f"Unsupported pattern type: {pattern_type}")
-        self.pattern_cache[cache_key] = result
-        return result
+        is_valid = result[0] if isinstance(result, tuple) else False
+        patterns = result[1] if isinstance(result, tuple) else None
+        # If the returned patterns are not a frozenset, convert them to one
+        if not isinstance(patterns, frozenset):
+            if not isinstance(patterns, typing.Iterable):
+                patterns = frozenset([patterns])
+            else:
+                patterns = frozenset(patterns)
+        self.pattern_cache[cache_key] = (is_valid, patterns)
+        return is_valid, patterns

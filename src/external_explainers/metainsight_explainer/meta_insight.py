@@ -59,9 +59,30 @@ class MetaInsight:
 
 
     def __eq__(self, other):
+        """
+        Compares two MetaInsight objects for equality.
+        Two MetaInsight objects are considered equal if they have the same commonness sets.
+        :param other:
+        :return:
+        """
         if not isinstance(other, MetaInsight):
             return False
-        return self.commonness_set == other.commonness_set
+        # If the commonness sets are not the same size, they are not equal
+        if len(self.commonness_set) != len(other.commonness_set):
+            return False
+        all_equal = True
+        for self_commonness in self.commonness_set:
+            for other_commonness in other.commonness_set:
+                # Check if the commonness sets are equal
+                if len(self_commonness) != len(other_commonness):
+                    all_equal = False
+                    break
+                for pattern in self_commonness:
+                    if pattern not in other_commonness:
+                        all_equal = False
+                        break
+
+        return all_equal
 
     @staticmethod
     def categorize_exceptions(commonness_set, exceptions):
@@ -401,6 +422,26 @@ class MetaInsight:
 
         return fig
 
+
+    def _create_labels(self, patterns: List[BasicDataPattern]) -> List[str]:
+        """
+        Create labels for the patterns in a commonness set.
+        :param patterns: A list of BasicDataPattern objects.
+        :return: A list of strings representing the labels for the patterns.
+        """
+        labels = []
+        for pattern in patterns:
+            subspace_str = ""
+            for key, val in pattern.data_scope.subspace.items():
+                split = val.split("<=")
+                if len(split) > 1:
+                    subspace_str += f"{val}"
+                else:
+                    subspace_str += f"{key} = {val}, "
+
+            labels.append(f"{subspace_str}")
+        return labels
+
     def visualize(self, fig=None, subplot_spec=None, figsize=(15, 10)) -> None:
         """
         Visualize the metainsight, showing commonness sets on the left and exceptions on the right.
@@ -413,13 +454,13 @@ class MetaInsight:
         n_cols = 2 if self.exceptions and len(self.exceptions) > 0 else 1
         if fig is None:
             fig = plt.figure(figsize=figsize)
-            outer_grid = gridspec.GridSpec(1, n_cols, width_ratios=[1, 1], figure=fig, wspace=0.4)
+            outer_grid = gridspec.GridSpec(1, n_cols, width_ratios=[1, 1], figure=fig, wspace=0.2)
         else:
             if subplot_spec is None:
-                outer_grid = gridspec.GridSpec(1, n_cols, width_ratios=[1, 1], figure=fig, wspace=0.4)
+                outer_grid = gridspec.GridSpec(1, n_cols, width_ratios=[1, 1], figure=fig, wspace=0.2)
             else:
                 outer_grid = gridspec.GridSpecFromSubplotSpec(1, n_cols, width_ratios=[1, 1],
-                                                              subplot_spec=subplot_spec, wspace=0.4)
+                                                              subplot_spec=subplot_spec, wspace=0.2)
 
         # Set up the left side for commonness sets
         left_grid = gridspec.GridSpecFromSubplotSpec(1, len(self.commonness_set) or 1,
@@ -434,28 +475,13 @@ class MetaInsight:
             ax = fig.add_subplot(left_grid[0, i])
 
             # Add light orange background to commonness sets
-            ax.set_facecolor((1.0, 0.9, 0.8, 0.2))  # Light orange with alpha
-
-            # Get the pattern type from the first pattern (all should be the same type)
-            pattern_type = commonness_set[0].pattern_type
+            # ax.set_facecolor((1.0, 0.9, 0.8, 0.2))  # Light orange with alpha
 
             # Get the highlights for visualization
             highlights = [pattern.highlight for pattern in commonness_set]
 
-            # Create labels based on subspace and measure
-            labels = []
-            for pattern in commonness_set:
-                # Format the subspace part
-                subspace_str = ", ".join([f"{key}={val}" for key, val in pattern.data_scope.subspace.items()])
-
-                # Format the measure part
-                measure = pattern.data_scope.measure
-                if isinstance(measure, tuple):
-                    measure_str = f"{measure[0]}({measure[1]})"
-                else:
-                    measure_str = str(measure)
-
-                labels.append(f"{subspace_str}, {measure_str}")
+            # Create labels based on subspace
+            labels = self._create_labels(commonness_set)
 
             # Create title for this commonness set
             title = self._create_commonness_set_title(commonness_set)
@@ -464,27 +490,8 @@ class MetaInsight:
 
             # Call the appropriate visualize_many function based on pattern type
             if highlights:
-                # Create a custom version of visualize_many that places the legend at the bottom
-                # instead of the side to prevent clipping
-                orig_visualize_many = highlights[0].visualize_many
-
-                def modified_visualize_many(plt_ax, patterns, labels, title):
-                    orig_visualize_many(plt_ax, patterns, labels, title)
-                    # Move legend to bottom to prevent clipping into right side
-                    if len(labels) > 3:
-                        # For many items, use a horizontal layout at the bottom
-                        plt_ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.3),
-                                      ncol=min(3, len(labels)), fontsize=8)
-                    else:
-                        # For fewer items, keep at the bottom right
-                        plt_ax.legend(loc='lower right', fontsize=9)
-
-                # Use our modified version
                 if hasattr(highlights[0], "visualize_many"):
-                    orig_visualize = highlights[0].visualize_many
-                    highlights[0].visualize_many = modified_visualize_many
                     highlights[0].visualize_many(plt_ax=ax, patterns=highlights, labels=labels, title=title)
-                    highlights[0].visualize_many = orig_visualize
                 else:
                     ax.set_title(title)
 
@@ -509,28 +516,13 @@ class MetaInsight:
                 # For "highlight change" category, visualize all in one plot
                 if category.lower() == "highlight-change" or category.lower() == "highlight change":
                     ax = fig.add_subplot(right_grid[i, 0])
-                    ax.set_facecolor((0.8, 0.9, 1.0, 0.2))  # Light blue with alpha
+                    # ax.set_facecolor((0.8, 0.9, 1.0, 0.2))  # Light blue with alpha
 
                     # Get the highlights for visualization
                     highlights = [pattern.highlight for pattern in exception_patterns]
 
                     # Create labels based on subspace and measure
-                    labels = []
-                    for pattern in exception_patterns:
-                        subspace_str = ""
-                        for key, val in pattern.data_scope.subspace.items():
-                            split = val.split("<=")
-                            if len(split) > 1:
-                                subspace_str += f"{val}"
-                            else:
-                                subspace_str += f"{key} = {val}, "
-                        measure = pattern.data_scope.measure
-                        if isinstance(measure, tuple):
-                            measure_str = f"{measure[0]}({measure[1]})"
-                        else:
-                            measure_str = str(measure)
-
-                        labels.append(f"{subspace_str}, {measure_str}")
+                    labels = self._create_labels(exception_patterns)
 
                     title = f"Same pattern, different highlights ({len(exception_patterns)})"
 
@@ -547,7 +539,7 @@ class MetaInsight:
                     # Create a nested grid for this row with more space
                     type_grid = gridspec.GridSpecFromSubplotSpec(2, 1,
                                                                  subplot_spec=right_grid[i, 0],
-                                                                 height_ratios=[1, 5], hspace=0.3, wspace=0.3)
+                                                                 height_ratios=[1, 5], hspace=0.5, wspace=0.3)
 
                     # Add title for the category in the first row
                     title_ax = fig.add_subplot(type_grid[0, 0])
@@ -574,15 +566,10 @@ class MetaInsight:
                         col_index = j % n_cols
                         row_index = j // n_cols
                         ax = fig.add_subplot(pattern_grid[row_index, col_index])
-                        ax.set_facecolor((0.8, 0.9, 1.0, 0.2))  # Light blue with alpha
+                        # ax.set_facecolor((0.8, 0.9, 1.0, 0.2))  # Light blue with alpha
 
                         # Format labels for title
                         subspace_str = ", ".join([f"{key}={val}" for key, val in pattern.data_scope.subspace.items()])
-                        measure = pattern.data_scope.measure
-                        if isinstance(measure, tuple):
-                            measure_str = f"{measure[0]}({measure[1]})"
-                        else:
-                            measure_str = str(measure)
 
                         title = ""
                         if pattern.pattern_type == PatternType.UNIMODALITY:
@@ -594,7 +581,7 @@ class MetaInsight:
                         if pattern.pattern_type == PatternType.CYCLE:
                             title += "Cycles found for "
 
-                        title += f"{subspace_str}, {measure_str}"
+                        title += f"{subspace_str},"
                         title = textwrap.fill(title, 30)  # Wrap title to prevent overflow
 
                         # Visualize the individual pattern with internal legend
@@ -603,13 +590,10 @@ class MetaInsight:
                             def individual_exception_visualize(plt_ax):
                                 pattern.highlight.visualize(plt_ax=plt_ax)
                                 if hasattr(plt_ax, 'legend'):
-                                    plt_ax.legend(loc='lower center', fontsize=7)
+                                    plt_ax.legend(loc='lower center', fontsize=10)
 
                             individual_exception_visualize(ax)
-                            ax.set_title(title, fontsize=9)
-
-        # # Add a main title with score information
-        # fig.suptitle(f"MetaInsight (Score: {self.score:.4f})", fontsize=16, y=0.98)
+                            ax.set_title(title, fontsize=10)
 
         # Allow more space for the figure elements
         plt.subplots_adjust(bottom=0.15, top=0.9)  # Adjust bottom and top margins

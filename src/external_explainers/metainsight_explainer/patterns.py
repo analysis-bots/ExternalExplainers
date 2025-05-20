@@ -97,12 +97,12 @@ class UnimodalityPattern(PatternInterface):
         plt_ax.set_title(f"Multiple {patterns[0].type if patterns else 'Unimodality'} Patterns" if title is None else title)
 
         # Add legend outside the plot
-        plt_ax.legend(loc='upper left')
+        plt_ax.legend()
 
         #plt_ax.figure.subplots_adjust(right=0.5)  # Reserve 50% of width for legend
 
         # Rotate x-axis tick labels if needed
-        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=8)
+        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=16)
 
     def __init__(self, source_series: pd.Series, type: Literal['Peak', 'Valley'], highlight_index, value_name: str=None):
         """
@@ -134,6 +134,8 @@ class UnimodalityPattern(PatternInterface):
         elif self.type.lower() == 'valley':
             plt_ax.plot(self.highlight_index, self.source_series[self.highlight_index], 'bo', label='Valley')
         plt_ax.legend(loc="upper left")
+        # Rotate x-axis tick labels
+        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=12)
         if title is not None:
             plt_ax.set_title(title)
 
@@ -240,13 +242,13 @@ class TrendPattern(PatternInterface):
         plt_ax.set_title(title if title is not None else default_title)
 
         # Rotate x-axis tick labels
-        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=8)
+        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=16)
 
         # First, adjust the subplot parameters to make room for the legend
         #plt_ax.figure.subplots_adjust(right=0.5)  # Reserve 50% of width for legend
 
         # Place legend outside the plot
-        plt_ax.legend(loc='upper left')
+        plt_ax.legend()
 
         # Ensure bottom margin for x-labels
         plt_ax.figure.subplots_adjust(bottom=0.15)
@@ -283,6 +285,8 @@ class TrendPattern(PatternInterface):
                     linewidth=2,
                     label=label)
         plt_ax.legend(loc="upper left")
+        # Rotate x-axis tick labels
+        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=12)
         if title is not None:
             plt_ax.set_title(title)
 
@@ -394,7 +398,7 @@ class OutlierPattern(PatternInterface):
         plt_ax.set_title(title if title is not None else default_title)
 
         # Rotate x-axis tick labels if needed
-        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=8)
+        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=16)
 
         # Get the current handles and labels
         handles, labels_current = plt_ax.get_legend_handles_labels()
@@ -407,7 +411,7 @@ class OutlierPattern(PatternInterface):
         #plt_ax.figure.subplots_adjust(right=0.5)  # Reserve 30% of width for legend
 
         # Place legend outside the plot with combined handles/labels
-        plt_ax.legend(all_handles, all_labels, loc='upper left')
+        plt_ax.legend(all_handles, all_labels)
 
         # Ensure bottom margin for x-labels
         plt_ax.figure.subplots_adjust(bottom=0.15)
@@ -439,6 +443,8 @@ class OutlierPattern(PatternInterface):
         # Emphasize the outliers
         plt_ax.scatter(self.outlier_indexes, self.outlier_values, color='red', label='Outliers')
         plt_ax.legend(loc="upper left")
+        # Rotate x-axis tick labels
+        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=12)
         if title is not None:
             plt_ax.set_title(title)
 
@@ -613,13 +619,13 @@ class CyclePattern(PatternInterface):
         plt_ax.set_title(title if title is not None else default_title)
 
         # Rotate x-axis tick labels
-        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=8)
+        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=16)
 
         # Adjust subplot parameters to make room for the legend
         #plt_ax.figure.subplots_adjust(right=0.5)  # Reserve 50% of width for legend
 
         # Place legend outside the plot
-        plt_ax.legend(legend_handles, legend_labels, loc='upper left')
+        plt_ax.legend(legend_handles, legend_labels)
 
         # Ensure bottom margin for x-labels
         plt_ax.figure.subplots_adjust(bottom=0.15)
@@ -656,6 +662,8 @@ class CyclePattern(PatternInterface):
             i += 1
             color_index = (color_index + 1) % len(colors)
         plt_ax.legend(loc="upper left")
+        # Rotate x-axis tick labels
+        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=12)
         if title is not None:
             plt_ax.set_title(title)
 

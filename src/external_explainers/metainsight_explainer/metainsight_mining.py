@@ -25,7 +25,8 @@ class MetaInsightMiner:
     """
 
     def __init__(self, k=5, min_score=MIN_IMPACT, min_commonness=COMMONNESS_THRESHOLD, balance_factor=BALANCE_PARAMETER,
-                 actionability_regularizer=ACTIONABILITY_REGULARIZER_PARAM):
+                 actionability_regularizer=ACTIONABILITY_REGULARIZER_PARAM
+                 ):
         """
         Initialize the MetaInsightMiner with the provided parameters.
 
@@ -128,7 +129,9 @@ class MetaInsightMiner:
 
     def mine_metainsights(self, source_df: pd.DataFrame,
                           dimensions: List[str],
-                          measures: List[Tuple[str,str]], n_bins: int = 10) -> List[MetaInsight]:
+                          measures: List[Tuple[str,str]], n_bins: int = 10,
+                          extend_by_measure: bool = False
+                          ) -> List[MetaInsight]:
         """
         The main function to mine MetaInsights.
         Mines metainsights from the given data frame based on the provided dimensions, measures, and impact measure.
@@ -179,24 +182,26 @@ class MetaInsightMiner:
             for pattern_type in PatternType:
                 if pattern_type == PatternType.OTHER or pattern_type == PatternType.NONE:
                     continue
-                base_dp = BasicDataPattern.evaluate_pattern(base_ds, source_df, pattern_type)
+                base_dps = BasicDataPattern.evaluate_pattern(base_ds, source_df, pattern_type)
 
-                if base_dp.pattern_type not in [PatternType.NONE, PatternType.OTHER]:
-                    # If a valid basic pattern is found, extend the data scope to generate HDS
-                    hdp, pattern_cache = base_dp.create_hdp(temporal_dimensions=dimensions, measures=measures,
-                                                            pattern_type=pattern_type, pattern_cache=pattern_cache)
+                for base_dp in base_dps:
+                    if base_dp.pattern_type not in [PatternType.NONE, PatternType.OTHER]:
+                        # If a valid basic pattern is found, extend the data scope to generate HDS
+                        hdp, pattern_cache = base_dp.create_hdp(temporal_dimensions=dimensions, measures=measures,
+                                                                pattern_type=pattern_type, pattern_cache=pattern_cache,
+                                                                extend_by_measure=extend_by_measure)
 
-                    # Pruning 1 - if the HDP is unlikely to form a commonness, discard it
-                    if len(hdp) < len(hdp.data_scopes) * self.min_commonness:
-                        continue
+                        # Pruning 1 - if the HDP is unlikely to form a commonness, discard it
+                        if len(hdp) < len(hdp.data_scopes) * self.min_commonness:
+                            continue
 
-                    # Pruning 2: Discard HDS with extremely low impact
-                    hds_impact = hdp.compute_impact(datascope_cache)
-                    if hds_impact < MIN_IMPACT:
-                        continue
+                        # Pruning 2: Discard HDS with extremely low impact
+                        hds_impact = hdp.compute_impact(datascope_cache)
+                        if hds_impact < MIN_IMPACT:
+                            continue
 
-                    # Add HDS to a queue for evaluation
-                    hdp_queue.put((hdp, pattern_type))
+                        # Add HDS to a queue for evaluation
+                        hdp_queue.put((hdp, pattern_type))
 
         processed_hdp_count = 0
         while not hdp_queue.empty():
@@ -236,8 +241,8 @@ if __name__ == "__main__":
     end_time = time.time()
     print(f"Time taken: {end_time - start_time:.2f} seconds")
 
-    nrows = 4 // 4
-    ncols = 4 // 4
+    nrows = 4
+    ncols = 1
 
     fig_len = 20 * ncols
     fig_height = 15 * nrows
@@ -245,8 +250,8 @@ if __name__ == "__main__":
     fig = plt.figure(figsize=(fig_len, fig_height))
     main_grid = gridspec.GridSpec(nrows, ncols, figure=fig, wspace=0.2, hspace=0.3)
 
-    for i, mi in enumerate(top_metainsights[:1]):
-        row, col = i // nrows, i % ncols
+    for i, mi in enumerate(top_metainsights[:4]):
+        row, col = i, 0
         mi.visualize(fig=fig, subplot_spec=main_grid[row, col])
 
     # plt.tight_layout()

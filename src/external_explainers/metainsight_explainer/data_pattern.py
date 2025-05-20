@@ -1,3 +1,5 @@
+import typing
+
 import pandas as pd
 from typing import Dict, List, Tuple
 
@@ -60,7 +62,7 @@ class BasicDataPattern:
         return f"BasicDataPattern(ds={self.data_scope}, type='{self.pattern_type}', highlight={self.highlight})"
 
     @staticmethod
-    def evaluate_pattern(data_scope: DataScope, df: pd.DataFrame, pattern_type: PatternType) -> 'BasicDataPattern':
+    def evaluate_pattern(data_scope: DataScope, df: pd.DataFrame, pattern_type: PatternType) -> List['BasicDataPattern']:
         """
         Evaluates a specific pattern type for the data distribution of a data scope.
         :param data_scope: The data scope to evaluate.
@@ -92,10 +94,14 @@ class BasicDataPattern:
             aggregated_series = aggregated_series.sort_index()
 
         # Evaluate the specific pattern type
+        returned_patterns = []
         pattern_evaluator = PatternEvaluator()
         is_valid, highlight = pattern_evaluator(aggregated_series, pattern_type)
         if is_valid:
-            return BasicDataPattern(data_scope, pattern_type, highlight)
+            # A returned highlight can contain multiple highlights, for example, if a peak and a valley are found
+            # in the same series.
+            for hl in highlight:
+                returned_patterns.append(BasicDataPattern(data_scope, pattern_type, hl))
         else:
             # Check for other pattern types
             for other_type in PatternType:
@@ -104,14 +110,19 @@ class BasicDataPattern:
                 if other_type != pattern_type:
                     other_is_valid, highlight = pattern_evaluator(aggregated_series, other_type)
                     if other_is_valid:
-                        return BasicDataPattern(data_scope, PatternType.OTHER, highlight)
+                        for hl in highlight:
+                            returned_patterns.append(BasicDataPattern(data_scope, PatternType.OTHER, hl))
 
-        # If no pattern is found, return a 'No Pattern' type
-        return BasicDataPattern(data_scope, PatternType.NONE, None)
+        if len(returned_patterns) == 0:
+            # If no pattern is found, return a 'No Pattern' type
+            return [BasicDataPattern(data_scope, PatternType.NONE, None)]
+
+        return returned_patterns
 
     def create_hdp(self, pattern_type: PatternType, pattern_cache: Dict = None,
                    hds: List[DataScope] = None, temporal_dimensions: List[str] = None,
-                   measures: List[Tuple[str,str]] = None, n_bins: int = 10) -> Tuple['HomogenousDataPattern', Dict]:
+                   measures: List[Tuple[str,str]] = None, n_bins: int = 10,
+                   extend_by_measure: bool = False) -> Tuple['HomogenousDataPattern', Dict]:
         """
         Generates a Homogenous Data Pattern (HDP) either from a given HDS or from the current DataScope.
 
@@ -124,7 +135,8 @@ class BasicDataPattern:
         :return: A tuple containing the created HomogenousDataPattern and the updated pattern cache.
         """
         if hds is None or len(hds) == 0:
-            hds = self.data_scope.create_hds(temporal_dimensions=temporal_dimensions, measures=measures, n_bins=n_bins)
+            hds = self.data_scope.create_hds(dims=temporal_dimensions, measures=measures,
+                                             n_bins=n_bins, extend_by_measure=extend_by_measure)
         # All the data scopes in the HDS should have the same source_df, and it should be
         # the same as the source_df of the current DataScope (otherwise, this pattern should not be
         # the one producing the HDP with this HDS).
@@ -148,9 +160,15 @@ class BasicDataPattern:
                     dp = self.evaluate_pattern(ds, source_df, pattern_type)
                     pattern_cache[cache_key] = dp  # Store in cache
 
+                # Some evaluation functions can return multiple patterns, so it is simpler to just
+                # convert it to a list and then treat it as an iterable.
+                if not isinstance(dp, typing.Iterable):
+                    dp = [dp]
+
                 # Only add patterns that are not 'No Pattern' to the HDP for MetaInsight evaluation
-                if dp.pattern_type != PatternType.NONE:
-                    hdp.append(dp)
+                for d in dp:
+                    if d is not None and d.pattern_type != PatternType.NONE:
+                        hdp.append(d)
 
         self.pattern_cache = pattern_cache
 

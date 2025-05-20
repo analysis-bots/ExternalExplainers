@@ -110,48 +110,51 @@ class DataScope:
                 new_ds.append(DataScope(self.source_df, self.subspace, self.breakdown, (measure_col, agg_func)))
         return new_ds
 
-    def _breakdown_extend(self, temporal_dimensions: List[str]) -> List['DataScope']:
+    def _breakdown_extend(self, dims: List[str]) -> List['DataScope']:
         """
         Extends the breakdown of the DataScope while keeping the same subspace and measure.
 
-        :param temporal_dimensions: The temporal dimensions to extend the breakdown with.
+        :param dims: The dimensions to extend the breakdown with.
         :return: A list of new DataScope objects with the extended breakdown.
         """
         new_ds = []
 
-        temporal_dimensions = [d for d in temporal_dimensions if
-                               self.source_df[d].dtype in ['datetime64[ns]', 'period[M]', 'int64']]
-        for breakdown_dim in temporal_dimensions:
+        for breakdown_dim in dims:
             if breakdown_dim != self.breakdown:
                 new_ds.append(DataScope(self.source_df, self.subspace, breakdown_dim, self.measure))
         return new_ds
 
-    def create_hds(self, temporal_dimensions: List[str] = None,
-                   measures: List[Tuple[str,str]] = None, n_bins: int = 10) -> 'HomogenousDataScope':
+    def create_hds(self, dims: List[str] = None,
+                   measures: List[Tuple[str,str]] = None, n_bins: int = 10,
+                   extend_by_measure: bool = False) -> 'HomogenousDataScope':
         """
         Generates a Homogeneous Data Scope (HDS) from a base data scope, using subspace, measure and breakdown
         extensions as defined in the MetaInsight paper.
 
-        :param temporal_dimensions: The temporal dimensions to extend the breakdown with. Expected as a list of strings.
+        :param dims: The temporal dimensions to extend the breakdown with. Expected as a list of strings.
         :param measures: The measures to extend the measure with. Expected to be a dict {measure_column: aggregate_function}.
         :param n_bins: The number of bins to use for numeric columns. Defaults to 10.
+        :param extend_by_measure: Whether to use measure extension or not. Defaults to False. Setting this to true
+        can lead to metainsights with mixed aggregation functions, which may often be undesirable.
 
         :return: A HDS in the form of a list of DataScope objects.
         """
         hds = [self]
-        if temporal_dimensions is None:
-            temporal_dimensions = []
+        if dims is None:
+            dims = []
         if measures is None:
             measures = {}
 
         # Subspace Extending
         hds.extend(self._subspace_extend(n_bins=n_bins))
 
-        # Measure Extending
-        hds.extend(self._measure_extend(measures))
+        # Measure Extending.
+        # We may not want to do it though, if we want our HDS to only contain the original measure.
+        if extend_by_measure:
+            hds.extend(self._measure_extend(measures))
 
         # Breakdown Extending
-        hds.extend(self._breakdown_extend(temporal_dimensions))
+        hds.extend(self._breakdown_extend(dims))
 
         return HomogenousDataScope(hds)
 

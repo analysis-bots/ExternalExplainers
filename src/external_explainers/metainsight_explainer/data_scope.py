@@ -12,19 +12,25 @@ class DataScope:
     The subspace is {City: Los Angeles, Month: *}, the breakdown is {Month} and the measure is {SUM(Sales)}.
     """
 
-    def __init__(self, source_df: pd.DataFrame, subspace: Dict[str, str], breakdown: str, measure: tuple):
+    def __init__(self, source_df: pd.DataFrame, subspace: Dict[str, str],
+                 breakdown: str | List[str],
+                 measure: tuple):
         """
         Initialize the DataScope with the provided subspace, breakdown and measure.
 
         :param source_df: The DataFrame containing the data.
         :param subspace: dict of filters, e.g., {'City': 'Los Angeles', 'Month': '*'}
-        :param breakdown: str, the dimension for group-by
+        :param breakdown: The dimension(s) to group by. Can be a string or a list of strings.
         :param measure: tuple, (measure_column_name, aggregate_function_name)
         """
+        # We want to allow for multi-value groupbys, so we work with lists of strings
+        if isinstance(breakdown, str):
+            breakdown = [breakdown]
         self.source_df = source_df
         self.subspace = subspace
         self.breakdown = breakdown
         self.measure = measure
+        self.breakdown_frozen = frozenset(self.breakdown)
         self.hash = None
 
     def __hash__(self):
@@ -33,7 +39,7 @@ class DataScope:
         # Need a hashable representation of subspace for hashing
         subspace_tuple = tuple(sorted(self.subspace.items())) if isinstance(self.subspace, dict) else tuple(
             self.subspace)
-        self.hash = hash((subspace_tuple, self.breakdown, self.measure))
+        self.hash = hash((subspace_tuple, frozenset(self.breakdown), self.measure))
         return self.hash
 
     def __repr__(self):
@@ -110,7 +116,7 @@ class DataScope:
                 new_ds.append(DataScope(self.source_df, self.subspace, self.breakdown, (measure_col, agg_func)))
         return new_ds
 
-    def _breakdown_extend(self, dims: List[str]) -> List['DataScope']:
+    def _breakdown_extend(self, dims: List[List[str]]) -> List['DataScope']:
         """
         Extends the breakdown of the DataScope while keeping the same subspace and measure.
 
@@ -124,7 +130,7 @@ class DataScope:
                 new_ds.append(DataScope(self.source_df, self.subspace, breakdown_dim, self.measure))
         return new_ds
 
-    def create_hds(self, dims: List[str] = None,
+    def create_hds(self, dims: List[List[str]] = None,
                    measures: List[Tuple[str,str]] = None, n_bins: int = 10,
                    extend_by_measure: bool = False,
                    extend_by_breakdown: bool = False,
@@ -163,7 +169,7 @@ class DataScope:
 
         return HomogenousDataScope(hds)
 
-    def compute_impact(self, precomputed_source_df: pd.DataFrame = None) -> float:
+    def compute_impact(self, groupby_cache) -> float:
         """
         Computes the impact of the data scope based on the provided impact measure.
         We define impact as the proportion of rows between the data scope and the total date scope, multiplied
@@ -180,7 +186,7 @@ class DataScope:
         # Perform subspace filtering
         filtered_df = self.apply_subspace()
         # Group by breakdown dimension and aggregate measure
-        if self.breakdown not in filtered_df.columns:
+        if any([True for dim in self.breakdown if dim not in filtered_df.columns]):
             # Cannot group by breakdown if it's not in the filtered data
             return 0
         if impact_col not in filtered_df.columns:
@@ -189,12 +195,23 @@ class DataScope:
         try:
             numeric_columns = filtered_df.select_dtypes(include=['number']).columns.tolist()
             # Perform the aggregation
-            aggregated_series = filtered_df.groupby(impact_col)[numeric_columns].agg(agg_func)
-            if precomputed_source_df is None:
-                aggregated_source = self.source_df.groupby(impact_col)[numeric_columns].agg(agg_func)
+            if agg_func != "std":
+                aggregated_series = filtered_df.groupby(impact_col)[numeric_columns].agg(agg_func)
             else:
-                aggregated_source = precomputed_source_df.groupby(impact_col)[[numeric_columns]].agg(agg_func)
+                # If the aggregation is std, we need to manually provide ddof
+                aggregated_series = filtered_df.groupby(impact_col)[numeric_columns].std(ddof=1)
+            if (impact_col, agg_func) in groupby_cache:
+                # If the aggregation is not in the cache, compute it and add it to the cache
+                aggregated_source = groupby_cache[(impact_col, agg_func)]
+            else:
+                if agg_func != "std":
+                    aggregated_source = self.source_df.groupby(impact_col)[numeric_columns].agg(agg_func)
+                else:
+                    # If the aggregation is std, we need to manually provide ddof
+                    aggregated_source = self.source_df.groupby(impact_col)[numeric_columns].std(ddof=1)
+                groupby_cache[(impact_col, agg_func)] = aggregated_source
         except Exception as e:
+            # raise e
             print(f"Error during aggregation for {self}: {e}")
             return 0
 
@@ -283,20 +300,20 @@ class HomogenousDataScope:
         # We use the negative impact, since we want to use a max-heap but only have min-heap available
         return - self.impact < - other.impact
 
-    def compute_impact(self, cache) -> float:
+    def compute_impact(self, datascope_cache, groupby_cache) -> float:
         """
         Computes the impact of the HDS. This is the sum of the impacts of all data scopes in the HDS.
         :return: The total impact of the HDS.
         """
         impact = 0
         for ds in self.data_scopes:
-            if ds in cache:
+            if ds in datascope_cache:
                 # Use the cached impact if available to avoid recomputation, since computing the impact
                 # is the single most expensive operation in the entire pipeline
-                ds_impact = cache[ds]
+                ds_impact = datascope_cache[ds]
             else:
-                ds_impact = ds.compute_impact()
-                cache[ds] = ds_impact
+                ds_impact = ds.compute_impact(groupby_cache)
+                datascope_cache[ds] = ds_impact
             impact += ds_impact
         self.impact = impact
         return impact

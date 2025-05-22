@@ -73,7 +73,7 @@ class BasicDataPattern:
         filtered_df = data_scope.apply_subspace()
 
         # Group by breakdown dimension and aggregate measure
-        if data_scope.breakdown not in filtered_df.columns:
+        if any([dim for dim in data_scope.breakdown if dim not in filtered_df.columns]):
             # Cannot group by breakdown if it's not in the filtered data
             return [BasicDataPattern(data_scope, PatternType.NONE, None)]
 
@@ -84,13 +84,18 @@ class BasicDataPattern:
 
         try:
             # Perform the aggregation
-            aggregated_series = filtered_df.groupby(data_scope.breakdown)[measure_col].agg(agg_func)
+            if agg_func != "std":
+                aggregated_series = filtered_df.groupby(data_scope.breakdown)[measure_col].agg(agg_func)
+            else:
+                # For standard deviation, we need to use the std function directly
+                aggregated_series = filtered_df.groupby(data_scope.breakdown)[measure_col].std(ddof=1)
         except Exception as e:
             print(f"Error during aggregation for {data_scope}: {e}")
             return [BasicDataPattern(data_scope, PatternType.NONE, None)]
 
         # Ensure series is sortable if breakdown is temporal
-        if df[data_scope.breakdown].dtype in ['datetime64[ns]', 'period[M]', 'int64']:
+        if all([True for dim in data_scope.breakdown if df[dim].dtype.kind in 'iuMmfc']):
+            # If the breakdown is temporal or at-least can be sorted, sort the series
             aggregated_series = aggregated_series.sort_index()
 
         # Evaluate the specific pattern type
@@ -120,7 +125,7 @@ class BasicDataPattern:
         return returned_patterns
 
     def create_hdp(self, pattern_type: PatternType, pattern_cache: Dict = None,
-                   hds: List[DataScope] = None, temporal_dimensions: List[str] = None,
+                   hds: List[DataScope] = None, group_by_dims: List[List[str]] = None,
                    measures: List[Tuple[str,str]] = None, n_bins: int = 10,
                    extend_by_measure: bool = False, extend_by_breakdown: bool = False) -> Tuple['HomogenousDataPattern', Dict]:
         """
@@ -129,7 +134,7 @@ class BasicDataPattern:
         :param pattern_type: The type of the pattern (e.g., 'Unimodality', 'Trend', etc.), provided as a PatternType enum.
         :param pattern_cache: A cache for the pattern, if available.
         :param hds: A list of DataScopes to create the HDP from. If None, it will be created from the current DataScope.
-        :param temporal_dimensions: The temporal dimensions to extend the breakdown with. Expected as a list of strings. Only needed if hds is None.
+        :param group_by_dims: The temporal dimensions to extend the breakdown with. Expected as a list of lists of strings.
         :param measures: The measures to extend the measure with. Expected to be a dict {measure_column: aggregate_function}. Only needed if hds is None.
         :param n_bins: The number of bins to use for numeric columns. Defaults to 10.
         :param extend_by_measure: Whether to extend the hds by measure. Defaults to False.
@@ -137,7 +142,7 @@ class BasicDataPattern:
         :return: A tuple containing the created HomogenousDataPattern and the updated pattern cache.
         """
         if hds is None or len(hds) == 0:
-            hds = self.data_scope.create_hds(dims=temporal_dimensions, measures=measures,
+            hds = self.data_scope.create_hds(dims=group_by_dims, measures=measures,
                                              n_bins=n_bins, extend_by_measure=extend_by_measure,
                                              extend_by_breakdown=extend_by_breakdown)
         # All the data scopes in the HDS should have the same source_df, and it should be

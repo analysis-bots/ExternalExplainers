@@ -128,17 +128,19 @@ class MetaInsightMiner:
         return selected_metainsights
 
     def mine_metainsights(self, source_df: pd.DataFrame,
-                          dimensions: List[str],
+                          filter_dimensions: List[str],
                           measures: List[Tuple[str,str]], n_bins: int = 10,
                           extend_by_measure: bool = False,
-                          extend_by_breakdown: bool = False
+                          extend_by_breakdown: bool = False,
+                          breakdown_dimensions: List[List[str]] = None,
                           ) -> List[MetaInsight]:
         """
         The main function to mine MetaInsights.
         Mines metainsights from the given data frame based on the provided dimensions, measures, and impact measure.
         :param source_df: The source DataFrame to mine MetaInsights from.
-        :param dimensions: The dimensions to consider for mining.
-        :param measures: The measures to consider for mining.
+        :param breakdown_dimensions: The dimensions to consider for breakdown (groupby).
+        :param filter_dimensions: The dimensions to consider for applying filters on.
+        :param measures: The measures (aggregations) to consider for mining.
         :param n_bins: The number of bins to use for numeric columns.
         :param extend_by_measure: Whether to extend the data scope by measure. Settings this to true can cause strange results,
         because we will consider multiple aggregation functions on the same filter dimension.
@@ -151,15 +153,18 @@ class MetaInsightMiner:
         pattern_cache = {}
         hdp_queue = PriorityQueue()
 
+        if breakdown_dimensions is None:
+            breakdown_dimensions = filter_dimensions
+
         # Generate data scopes with one dimension as breakdown, all '*' subspace
         base_data_scopes = []
-        for breakdown_dim in dimensions:
+        for breakdown_dim in breakdown_dimensions:
             for measure_col, agg_func in measures:
                 base_data_scopes.append(
                     DataScope(source_df, {}, breakdown_dim, (measure_col, agg_func)))
 
         # Generate data scopes with one filter in subspace and one breakdown
-        for filter_dim in dimensions:
+        for filter_dim in filter_dimensions:
             unique_values = source_df[filter_dim].dropna().unique()
             # If there are too many unique values, we bin them if it's a numeric column, or only choose the
             # top 10 most frequent values if it's a categorical column
@@ -173,13 +178,26 @@ class MetaInsightMiner:
                     top_values = source_df[filter_dim].value_counts().nlargest(10).index.tolist()
                     unique_values = [v for v in unique_values if v in top_values]
             for value in unique_values:
-                for breakdown_dim in dimensions:
+                for breakdown_dim in breakdown_dimensions:
                     # Prevents the same breakdown dimension from being used as filter. This is because it
                     # is generally not very useful to groupby the same dimension as the filter dimension.
                     if breakdown_dim != filter_dim:
                         for measure_col, agg_func in measures:
                             base_data_scopes.append(
                                 DataScope(source_df, {filter_dim: value}, breakdown_dim, (measure_col, agg_func)))
+
+        # The source dataframe with a groupby on various dimensions and measures can be precomputed,
+        # instead of computed each time we need it.
+        groupby_cache = {}
+        numeric_columns = source_df.select_dtypes(include=[np.number]).columns.tolist()
+        for col, agg_func in measures:
+            groupby_key = (col, agg_func)
+            if groupby_key not in groupby_cache:
+                # Handle 'std' aggregation specially
+                if agg_func == 'std':
+                    groupby_cache[groupby_key] = source_df.groupby(col)[numeric_columns].std(ddof=1)
+                else:
+                    groupby_cache[groupby_key] = source_df.groupby(col)[numeric_columns].agg(agg_func)
 
 
         for base_ds in base_data_scopes:
@@ -192,7 +210,7 @@ class MetaInsightMiner:
                 for base_dp in base_dps:
                     if base_dp.pattern_type not in [PatternType.NONE, PatternType.OTHER]:
                         # If a valid basic pattern is found, extend the data scope to generate HDS
-                        hdp, pattern_cache = base_dp.create_hdp(temporal_dimensions=dimensions, measures=measures,
+                        hdp, pattern_cache = base_dp.create_hdp(group_by_dims=breakdown_dimensions, measures=measures,
                                                                 pattern_type=pattern_type, pattern_cache=pattern_cache,
                                                                 extend_by_measure=extend_by_measure, extend_by_breakdown=extend_by_breakdown)
 
@@ -201,7 +219,7 @@ class MetaInsightMiner:
                             continue
 
                         # Pruning 2: Discard HDS with extremely low impact
-                        hds_impact = hdp.compute_impact(datascope_cache)
+                        hds_impact = hdp.compute_impact(datascope_cache, groupby_cache)
                         if hds_impact < MIN_IMPACT:
                             continue
 
@@ -235,9 +253,13 @@ if __name__ == "__main__":
     # Create a sample Pandas DataFrame (similar to the paper's example)
     df = pd.read_csv("C:\\Users\\Yuval\\PycharmProjects\\pd-explain\\Examples\\Datasets\\adult.csv")
     df = df.sample(5000, random_state=42)  # Sample 5000 rows for testing
+    print(df.columns)
 
     # Define dimensions, measures
     dimensions = ['marital-status', 'workclass', 'education-num']
+    breakdown_dimensions = [['race', 'marital-status'],
+                            ['native-country', 'label'],
+                            ['race', 'label']]
     measures = [('capital-gain', 'mean'), ('capital-loss', 'mean'),
                 ('hours-per-week', 'mean')]
 
@@ -246,9 +268,10 @@ if __name__ == "__main__":
     start_time = time.time()
     miner = MetaInsightMiner(k=4, min_score=0.01, min_commonness=0.5)
     top_metainsights = miner.mine_metainsights(
-        df,
-        dimensions,
-        measures,
+        source_df=df,
+        filter_dimensions=dimensions,
+        measures=measures,
+        breakdown_dimensions=breakdown_dimensions,
     )
     end_time = time.time()
     print(f"Time taken: {end_time - start_time:.2f} seconds")

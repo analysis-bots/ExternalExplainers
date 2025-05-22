@@ -325,7 +325,7 @@ class MetaInsight:
         for subspace in subspaces[1:]:
             shared_subspace.intersection_update(subspace.keys())
         title += f"for over {self.commonness_threshold * 100}% of values of {', '.join(shared_subspace)}, "
-        breakdowns = set([datascope.breakdown for datascope in data_scopes])
+        breakdowns = set([str(datascope.breakdown) for datascope in data_scopes])
         measures = set([datascope.measure for datascope in data_scopes])
         measures_str = []
         for measure in measures:
@@ -456,12 +456,12 @@ class MetaInsight:
         n_cols = 2 if self.exceptions and len(self.exceptions) > 0 else 1
         if fig is None:
             fig = plt.figure(figsize=figsize)
-            outer_grid = gridspec.GridSpec(1, n_cols, width_ratios=[1, 1], figure=fig, wspace=0.2)
+            outer_grid = gridspec.GridSpec(1, n_cols, width_ratios=[1] * n_cols, figure=fig, wspace=0.2)
         else:
             if subplot_spec is None:
-                outer_grid = gridspec.GridSpec(1, n_cols, width_ratios=[1, 1], figure=fig, wspace=0.2)
+                outer_grid = gridspec.GridSpec(1, n_cols, width_ratios=[1] * n_cols, figure=fig, wspace=0.2)
             else:
-                outer_grid = gridspec.GridSpecFromSubplotSpec(1, n_cols, width_ratios=[1, 1],
+                outer_grid = gridspec.GridSpecFromSubplotSpec(1, n_cols, width_ratios=[1] * n_cols,
                                                               subplot_spec=subplot_spec, wspace=0.2)
 
         # Set up the left side for commonness sets
@@ -541,7 +541,7 @@ class MetaInsight:
                     # Create a nested grid for this row with more space
                     type_grid = gridspec.GridSpecFromSubplotSpec(2, 1,
                                                                  subplot_spec=right_grid[i, 0],
-                                                                 height_ratios=[1, 15], hspace=0.5, wspace=0.3)
+                                                                 height_ratios=[1, 15], hspace=0.6, wspace=0.3)
 
                     # Add title for the category in the first row
                     title_ax = fig.add_subplot(type_grid[0, 0])
@@ -558,11 +558,11 @@ class MetaInsight:
                     # Create subplots for each pattern in the second row
                     num_patterns = len(exception_patterns)
                     # At most 2 patterns per row
-                    n_cols = 2
+                    n_cols = 2 if num_patterns >= 2 else 1
                     n_rows = math.ceil(num_patterns / n_cols)
                     pattern_grid = gridspec.GridSpecFromSubplotSpec(n_rows, n_cols,
                                                                     subplot_spec=type_grid[1, 0],
-                                                                    wspace=0.4, hspace=0.4)  # More horizontal space
+                                                                    wspace=0.4, hspace=0.6)  # More horizontal space
 
 
                     for j, pattern in enumerate(exception_patterns):

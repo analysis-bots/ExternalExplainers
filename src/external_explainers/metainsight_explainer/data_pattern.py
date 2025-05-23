@@ -173,9 +173,14 @@ class BasicDataPattern:
                 if not isinstance(dp, typing.Iterable):
                     dp = [dp]
 
-                # Only add patterns that are not 'No Pattern' to the HDP for MetaInsight evaluation
+                # # Only add patterns that are not 'No Pattern' to the HDP for MetaInsight evaluation
+                # for d in dp:
+                #     if d is not None and d.pattern_type != PatternType.NONE:
+                #         hdp.append(d)
+
+                # Add all patterns, including 'No Pattern', since it is important to know that we had a 'No Pattern'.
                 for d in dp:
-                    if d is not None and d.pattern_type != PatternType.NONE:
+                    if dp is not None:
                         hdp.append(d)
 
         self.pattern_cache = pattern_cache

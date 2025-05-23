@@ -499,21 +499,52 @@ class MetaInsight:
 
         # Handle exceptions area if there are any
         if self.exceptions and n_cols > 1:
+            none_patterns_exist = self.exceptions.get("No-Pattern", None) is not None
             # Set up the right side for exceptions with one row per exception type
-            right_grid = gridspec.GridSpecFromSubplotSpec(len(self.exceptions), 1,
-                                                          subplot_spec=outer_grid[0, 1],
-                                                          hspace=0.5)  # Add more vertical space
+            if len(self.exceptions) == 1 and none_patterns_exist:
+                right_grid = gridspec.GridSpecFromSubplotSpec(len(self.exceptions), 1,
+                                                              subplot_spec=outer_grid[0, 1],
+                                                              hspace=1)  # Add more vertical space
+            else:
+                # If there are None exceptions, place them at the bottom with very little space
+                right_grid = gridspec.GridSpecFromSubplotSpec(len(self.exceptions), 1,
+                                                              subplot_spec=outer_grid[0, 1],
+                                                              height_ratios=[10] * (len(self.exceptions) - 1) + [1],
+                                                              hspace=1)  # Add more vertical space
+                # Get the None patterns and "summarize" them in a dictionary
+                exception_patterns = self.exceptions.get("No-Pattern", [])
+                non_exceptions = [pattern for pattern in exception_patterns if pattern.pattern_type == PatternType.NONE]
+                non_exceptions_subspaces = [pattern.data_scope.subspace for pattern in non_exceptions]
+                non_exceptions_dict = defaultdict(list)
+                for subspace in non_exceptions_subspaces:
+                    for key, val in subspace.items():
+                        non_exceptions_dict[key].append(val)
+                # Create a title for the None patterns
+                title = f"No patterns detected ({len(non_exceptions)})"
+                title = textwrap.fill(title, width=40)
+                # Create text saying all the values for which no patterns were detected
+                no_patterns_text = ""
+                for key, val in non_exceptions_dict.items():
+                    no_patterns_text += f"{key} = {val}\n"
+                no_patterns_text = textwrap.fill(no_patterns_text, width=40)
+                # Create a subplot for the None patterns
+                ax = fig.add_subplot(right_grid[len(self.exceptions) - 1, 0])
+                # Add title and text
+                ax.set_title(title, y=0.1, fontsize=18, fontweight='bold')
+                ax.text(0.3, -0.2, no_patterns_text,
+                        ha='center', va='center',
+                        fontsize=18)
+                ax.axis('off')  # Hide axis for the title
 
             # Process each exception category
             for i, (category, exception_patterns) in enumerate(self.exceptions.items()):
                 if not exception_patterns:  # Skip empty categories
                     continue
 
-                # For "None" category, just skip it. It may be a good idea to add text saying
-                # "Nothing found for...", but we already have an issue with visual clutter and
-                # clipping everywhere.
+                # For "None" category, already handled it above
                 if category.lower() == "none" or category.lower() == "no-pattern":
                     continue
+
 
                 # For "highlight change" category, visualize all in one plot
                 if category.lower() == "highlight-change" or category.lower() == "highlight change":

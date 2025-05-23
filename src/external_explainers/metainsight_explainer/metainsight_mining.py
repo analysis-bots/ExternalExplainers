@@ -226,11 +226,9 @@ class MetaInsightMiner:
                         # Add HDS to a queue for evaluation
                         hdp_queue.put((hdp, pattern_type))
 
-        processed_hdp_count = 0
         metainsight_candidates = {}
         while not hdp_queue.empty():
             hdp, pattern_type = hdp_queue.get()
-            processed_hdp_count += 1
 
             # Evaluate HDP to find MetaInsight
             metainsight = MetaInsight.create_meta_insight(hdp, commonness_threshold=self.min_commonness)

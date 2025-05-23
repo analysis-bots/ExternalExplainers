@@ -86,14 +86,14 @@ class DataScope:
                 # If there are too many unique values, we bin them if it's a numeric column, or only choose the
                 # top 10 most frequent values if it's a categorical column
                 if len(unique_values) > n_bins:
-                    if self.source_df[dim_to_extend].dtype in ['int64', 'float64']:
+                    if self.source_df[dim_to_extend].dtype.kind in 'biufcmM':
                         # Bin the numeric column
                         bins = pd.cut(self.source_df[dim_to_extend], bins=n_bins, retbins=True)[1]
                         unique_values = [f"{bins[i]} <= {dim_to_extend} <= {bins[i + 1]}" for i in range(len(bins) - 1)]
-                    else:
-                        # Choose the top 10 most frequent values
-                        top_values = self.source_df[dim_to_extend].value_counts().nlargest(10).index.tolist()
-                        unique_values = [v for v in unique_values if v in top_values]
+                    # else:
+                    #     # Choose the top 10 most frequent values
+                    #     top_values = self.source_df[dim_to_extend].value_counts().nlargest(10).index.tolist()
+                    #     unique_values = [v for v in unique_values if v in top_values]
                 for value in unique_values:
                     # Ensure it's a sibling
                     if self.subspace.get(dim_to_extend) != value:

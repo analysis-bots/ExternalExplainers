@@ -453,7 +453,10 @@ class MetaInsight:
         :param figsize: Size of the figure if a new one is created.
         """
         # Create a new figure if not provided
-        n_cols = 2 if self.exceptions and len(self.exceptions) > 0 else 1
+        # n_cols = 2 if self.exceptions and len(self.exceptions) > 0 else 1
+        # Above line makes it so the plot of the commonness sets takes up the entire figure if there are no exceptions.
+        # However, this can potentially make for some confusion, so I elected to always use 2 columns.
+        n_cols = 2
         if fig is None:
             fig = plt.figure(figsize=figsize)
             outer_grid = gridspec.GridSpec(1, n_cols, width_ratios=[1] * n_cols, figure=fig, wspace=0.2)
@@ -501,16 +504,19 @@ class MetaInsight:
         if self.exceptions and n_cols > 1:
             none_patterns_exist = self.exceptions.get("No-Pattern", None) is not None
             # Set up the right side for exceptions with one row per exception type
-            if len(self.exceptions) == 1 and none_patterns_exist:
+            # If there are no exceptions, we create a grid with equal height ratios for each exception type.
+            # Else, we create a grid where the last row is smaller if there are None exceptions.
+            if not none_patterns_exist:
                 right_grid = gridspec.GridSpecFromSubplotSpec(len(self.exceptions), 1,
                                                               subplot_spec=outer_grid[0, 1],
-                                                              hspace=1)  # Add more vertical space
+                                                              hspace=1.2)  # Add more vertical space
             else:
-                # If there are None exceptions, place them at the bottom with very little space
+                # If there are None exceptions, place them at the bottom with very little space, since it just text
+                height_ratios = [10] * (len(self.exceptions) - 1) + [1] if len(self.exceptions) > 1 else [1]
                 right_grid = gridspec.GridSpecFromSubplotSpec(len(self.exceptions), 1,
                                                               subplot_spec=outer_grid[0, 1],
-                                                              height_ratios=[10] * (len(self.exceptions) - 1) + [1],
-                                                              hspace=1)  # Add more vertical space
+                                                              height_ratios=height_ratios,
+                                                              hspace=1.4)  # Add more vertical space
                 # Get the None patterns and "summarize" them in a dictionary
                 exception_patterns = self.exceptions.get("No-Pattern", [])
                 non_exceptions = [pattern for pattern in exception_patterns if pattern.pattern_type == PatternType.NONE]
@@ -526,18 +532,26 @@ class MetaInsight:
                 no_patterns_text = ""
                 for key, val in non_exceptions_dict.items():
                     no_patterns_text += f"{key} = {val}\n"
-                no_patterns_text = textwrap.fill(no_patterns_text, width=40)
+                no_patterns_text = textwrap.fill(no_patterns_text, width=60)
                 # Create a subplot for the None patterns
                 ax = fig.add_subplot(right_grid[len(self.exceptions) - 1, 0])
                 # Add title and text
-                ax.set_title(title, y=0.1, fontsize=18, fontweight='bold')
-                ax.text(0.3, -0.2, no_patterns_text,
+                if len(self.exceptions) == 1:
+                    title_y = None
+                    text_y = 0.9
+                else:
+                    title_y = -0.3
+                    text_y = -1.1
+                text_x = 0.5
+                ax.set_title(title, y=title_y, fontsize=18, fontweight='bold')
+                ax.text(text_x, text_y, no_patterns_text,
                         ha='center', va='center',
                         fontsize=18)
                 ax.axis('off')  # Hide axis for the title
 
             # Process each exception category
-            for i, (category, exception_patterns) in enumerate(self.exceptions.items()):
+            i = 0
+            for category, exception_patterns in self.exceptions.items():
                 if not exception_patterns:  # Skip empty categories
                     continue
 
@@ -611,6 +625,8 @@ class MetaInsight:
                         # Visualize the individual pattern with internal legend
                         if pattern.highlight:
                             pattern.highlight.visualize(ax, title=title)
+
+                i += 1
 
         # Allow more space for the figure elements
         plt.subplots_adjust(bottom=0.15, top=0.9)  # Adjust bottom and top margins

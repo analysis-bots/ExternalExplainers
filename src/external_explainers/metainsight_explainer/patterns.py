@@ -103,64 +103,6 @@ class UnimodalityPattern(PatternInterface):
         # Define a color cycle for lines
         colors = plt.cm.tab10.colors
 
-        # Get a union of the indexes of all patterns. We do this because some patterns may be missing
-        # some of the indexes due to filters, which can cause missing x axis labels as a result.
-        all_indexes = set()
-        for pattern in patterns:
-            # Convert all indexes to strings, to avoid issues with type mismatches causing exceptions
-            all_indexes.update(pattern.source_series.index)
-
-        all_indexes = list(all_indexes)
-        all_indexes.sort()
-
-        # Add the missing parts of the index
-        for pattern in patterns:
-            new_series = pd.Series(index=all_indexes, dtype=pattern.source_series.dtype)
-            for idx in all_indexes:
-                if idx in pattern.source_series.index:
-                    new_series[idx] = pattern.source_series[idx]
-            pattern.source_series = new_series
-
-
-        for i, (pattern, label) in enumerate(zip(patterns, labels)):
-            color = colors[i % len(colors)]
-
-            # Plot the series with a unique color
-            plt_ax.plot(pattern.source_series, color=color, alpha=0.7, label=label)
-
-            # Highlight the peak or valley with a marker
-            if pattern.type.lower() == 'peak':
-                plt_ax.plot(pattern.highlight_index, pattern.source_series.loc[pattern.highlight_index],
-                            'o', color=color, markersize=8, markeredgecolor='black')
-            elif pattern.type.lower() == 'valley':
-                plt_ax.plot(pattern.highlight_index, pattern.source_series.loc[pattern.highlight_index],
-                            'v', color=color, markersize=8, markeredgecolor='black')
-
-        # Set labels and title
-        plt_ax.set_xlabel(patterns[0].index_name if patterns else 'Index')
-        plt_ax.set_ylabel(patterns[0].value_name if patterns else 'Value')
-        plt_ax.set_title(f"Multiple {patterns[0].type if patterns else 'Unimodality'} Patterns" if title is None else title)
-
-        # Add legend outside the plot
-        plt_ax.legend()
-
-        #plt_ax.figure.subplots_adjust(right=0.5)  # Reserve 50% of width for legend
-
-        # Rotate x-axis tick labels if needed
-        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=16)
-
-    @staticmethod
-    def visualize_many(plt_ax, patterns: List['UnimodalityPattern'], labels: List[str], title: str = None) -> None:
-        """
-        Visualize multiple unimodality patterns on a single plot.
-
-        :param plt_ax: Matplotlib axes to plot on
-        :param patterns: List of UnimodalityPattern objects
-        :param labels: List of labels for each pattern (e.g. data scope descriptions)
-        """
-        # Define a color cycle for lines
-        colors = plt.cm.tab10.colors
-
         # Prepare patterns with consistent numeric positions
         index_to_position, sorted_indices = PatternInterface.prepare_patterns_for_visualization(patterns)
 
@@ -254,6 +196,8 @@ class UnimodalityPattern(PatternInterface):
         the same highlight index.
         """
         if not isinstance(other, UnimodalityPattern):
+            return False
+        if not type(self.highlight_index) == type(other.highlight_index):
             return False
         return  (self.type == other.type and
                 self.highlight_index == other.highlight_index)
@@ -561,14 +505,32 @@ class OutlierPattern(PatternInterface):
         :param plt_ax:
         :return:
         """
-        plt_ax.scatter(self.source_series.index, self.source_series, label='Regular Data Point')
+        index_to_position, sorted_indices = PatternInterface.prepare_patterns_for_visualization([self])
+        positions = [index_to_position[idx] for idx in self.source_series.index]
+        values = self.source_series.values
+        plt_ax.scatter(positions, values, label='Regular Data Point')
         plt_ax.set_xlabel(self.source_series.index.name if self.source_series.index.name else 'Index')
         plt_ax.set_ylabel(self.value_name)
         # Emphasize the outliers
-        plt_ax.scatter(self.outlier_indexes, self.outlier_values, color='red', label='Outliers')
+        # Map outliers to positions
+        outlier_positions = []
+        outlier_values = []
+
+        for idx in self.outlier_indexes:
+            if idx in self.source_series.index:
+                outlier_positions.append(index_to_position[idx])
+                outlier_values.append(self.source_series.loc[idx])
+        plt_ax.scatter(outlier_positions, outlier_values, color='red', label='Outliers')
         plt_ax.legend(loc="upper left")
-        # Rotate x-axis tick labels
-        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=12)
+        # Set x-ticks to show original index values
+        if sorted_indices:
+            # For large datasets, show fewer tick labels
+            step = max(1, len(sorted_indices) // 10)
+            positions = list(range(0, len(sorted_indices), step))
+            labels = [str(sorted_indices[pos]) for pos in positions]
+
+            plt_ax.set_xticks(positions)
+            plt_ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=16)
         if title is not None:
             plt_ax.set_title(title)
 
@@ -581,6 +543,9 @@ class OutlierPattern(PatternInterface):
         of the other or vice versa.
         """
         if not isinstance(other, OutlierPattern):
+            return False
+        # If one index is a multi-index and the other is not, for example, they cannot be equal
+        if not type(self.outlier_indexes) == type(other.outlier_indexes):
             return False
         return self.outlier_indexes.isin(other.outlier_indexes).all() or \
                 other.outlier_indexes.isin(self.outlier_indexes).all()

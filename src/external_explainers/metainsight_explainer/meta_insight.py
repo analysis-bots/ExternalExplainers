@@ -84,6 +84,16 @@ class MetaInsight:
 
         return all_equal
 
+
+    def __str__(self):
+        """
+        :return: A string representation of the MetaInsight, describing all of the commonnesses in it.
+        """
+        ret_str = ""
+        for commonness in self.commonness_set:
+            ret_str += self._create_commonness_set_title(commonness)
+        return ret_str
+
     @staticmethod
     def categorize_exceptions(commonness_set, exceptions):
         """

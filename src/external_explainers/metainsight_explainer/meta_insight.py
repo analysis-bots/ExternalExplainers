@@ -236,7 +236,7 @@ class MetaInsight:
         # Ensure conciseness is within a reasonable range, e.g., [0, 1]
         return conciseness
 
-    def compute_score(self, cache) -> float:
+    def compute_score(self) -> float:
         """
         Computes the score of the MetaInsight.
         The score is the multiple of the conciseness of the MetaInsight and the impact score of the HDS
@@ -246,7 +246,7 @@ class MetaInsight:
         """
         conciseness = self.calculate_conciseness()
         # If the impact has already been computed, use it
-        hds_score = self.hdp.impact if self.hdp.impact != 0 else self.hdp.compute_impact(cache)
+        hds_score = self.hdp.impact if self.hdp.impact != 0 else self.hdp.compute_impact()
         self.score = conciseness * hds_score
         return self.score
 

@@ -2,7 +2,9 @@ import pandas as pd
 from typing import Dict, List, Tuple
 from scipy.special import kl_div
 import re
+from external_explainers.metainsight_explainer.cache import Cache
 
+cache = Cache()
 
 class DataScope:
     """
@@ -11,6 +13,7 @@ class DataScope:
     Example: for the query SELECT Month, SUM(Sales) FROM DATASET WHERE City==“Los Angeles” GROUP BY Month
     The subspace is {City: Los Angeles, Month: *}, the breakdown is {Month} and the measure is {SUM(Sales)}.
     """
+
 
     def __init__(self, source_df: pd.DataFrame, subspace: Dict[str, str],
                  breakdown: str | List[str],
@@ -169,7 +172,7 @@ class DataScope:
 
         return HomogenousDataScope(hds)
 
-    def compute_impact(self, groupby_cache) -> float:
+    def compute_impact(self) -> float:
         """
         Computes the impact of the data scope based on the provided impact measure.
         We define impact as the proportion of rows between the data scope and the total date scope, multiplied
@@ -200,16 +203,18 @@ class DataScope:
             else:
                 # If the aggregation is std, we need to manually provide ddof
                 aggregated_series = filtered_df.groupby(impact_col)[numeric_columns].std(ddof=1)
-            if (impact_col, agg_func) in groupby_cache:
-                # If the aggregation is not in the cache, compute it and add it to the cache
-                aggregated_source = groupby_cache[(impact_col, agg_func)]
+            cache_result = cache.get_from_groupby_cache((impact_col, agg_func))
+            if cache_result is not None:
+                # If the aggregation is in the cache, use it
+                aggregated_source = cache_result
             else:
                 if agg_func != "std":
                     aggregated_source = self.source_df.groupby(impact_col)[numeric_columns].agg(agg_func)
                 else:
                     # If the aggregation is std, we need to manually provide ddof
                     aggregated_source = self.source_df.groupby(impact_col)[numeric_columns].std(ddof=1)
-                groupby_cache[(impact_col, agg_func)] = aggregated_source
+                # Cache the result of the groupby operation
+                cache.add_to_groupby_cache((impact_col, agg_func), aggregated_source)
         except Exception as e:
             # raise e
             print(f"Error during aggregation for {self}: {e}")
@@ -300,20 +305,21 @@ class HomogenousDataScope:
         # We use the negative impact, since we want to use a max-heap but only have min-heap available
         return - self.impact < - other.impact
 
-    def compute_impact(self, datascope_cache, groupby_cache) -> float:
+    def compute_impact(self) -> float:
         """
         Computes the impact of the HDS. This is the sum of the impacts of all data scopes in the HDS.
         :return: The total impact of the HDS.
         """
         impact = 0
         for ds in self.data_scopes:
-            if ds in datascope_cache:
-                # Use the cached impact if available to avoid recomputation, since computing the impact
-                # is the single most expensive operation in the entire pipeline
-                ds_impact = datascope_cache[ds]
+            # Use the cached impact if available to avoid recomputation, since computing the impact
+            # is the single most expensive operation in the entire pipeline
+            cache_result = cache.get_from_datascope_cache(ds.__hash__())
+            if cache_result is not None:
+                ds_impact = cache_result
             else:
-                ds_impact = ds.compute_impact(groupby_cache)
-                datascope_cache[ds] = ds_impact
+                ds_impact = ds.compute_impact()
+                cache.add_to_datascope_cache(ds.__hash__(), ds_impact)
             impact += ds_impact
         self.impact = impact
         return impact

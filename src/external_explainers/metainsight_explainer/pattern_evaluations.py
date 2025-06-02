@@ -11,6 +11,7 @@ from external_explainers.metainsight_explainer.patterns import UnimodalityPatter
 import pymannkendall as mk
 from cydets.algorithm import detect_cycles
 from singleton_decorator import singleton
+from external_explainers.metainsight_explainer.cache import Cache
 
 
 class PatternType(Enum):
@@ -32,7 +33,7 @@ class PatternEvaluator:
     """
 
     def __init__(self):
-        self.pattern_cache = {}
+        self.cache = Cache()
         self.OUTLIER_ZSCORE_THRESHOLD = 2.0  # Z-score threshold for outlier detection
         self.TREND_SLOPE_THRESHOLD = 0.01  # Minimum absolute slope for trend detection
 
@@ -206,8 +207,10 @@ class PatternEvaluator:
         series_hash = hash(tuple(series.values))
         cache_key = (series_hash, pattern_type)
 
-        if cache_key in self.pattern_cache:
-            return self.pattern_cache[cache_key]
+        cache_result = self.cache.get_from_pattern_eval_cache(cache_key)
+        if cache_result is not None:
+            # If the result is already cached, return it
+            return cache_result
 
         series = series[~series.isna()]  # Remove NaN values
         series = series.sort_index()  # Sort the series by index
@@ -230,5 +233,6 @@ class PatternEvaluator:
                 patterns = frozenset([patterns])
             else:
                 patterns = frozenset(patterns)
-        self.pattern_cache[cache_key] = (is_valid, patterns)
+        # Add the result to the cache
+        self.cache.add_to_pattern_eval_cache(cache_key, (is_valid, patterns))
         return is_valid, patterns

@@ -13,6 +13,7 @@ from external_explainers.metainsight_explainer.meta_insight import (MetaInsight,
                                                                     COMMONNESS_THRESHOLD)
 from external_explainers.metainsight_explainer.data_scope import DataScope
 from external_explainers.metainsight_explainer.pattern_evaluations import PatternType
+from external_explainers.metainsight_explainer.cache import Cache
 
 MIN_IMPACT = 0.01
 
@@ -149,8 +150,7 @@ class MetaInsightMiner:
         having a metainsight on 2 disjoint sets of indexes.
         :return:
         """
-        datascope_cache = {}
-        pattern_cache = {}
+        cache = Cache()
         hdp_queue = PriorityQueue()
 
         if breakdown_dimensions is None:
@@ -188,16 +188,16 @@ class MetaInsightMiner:
 
         # The source dataframe with a groupby on various dimensions and measures can be precomputed,
         # instead of computed each time we need it.
-        groupby_cache = {}
         numeric_columns = source_df.select_dtypes(include=[np.number]).columns.tolist()
         for col, agg_func in measures:
             groupby_key = (col, agg_func)
-            if groupby_key not in groupby_cache:
+            cache_result = cache.get_from_groupby_cache(groupby_key)
+            if cache_result is not None:
                 # Handle 'std' aggregation specially
                 if agg_func == 'std':
-                    groupby_cache[groupby_key] = source_df.groupby(col)[numeric_columns].std(ddof=1)
+                    cache.add_to_groupby_cache(groupby_key, source_df.groupby(col)[numeric_columns].std(ddof=1))
                 else:
-                    groupby_cache[groupby_key] = source_df.groupby(col)[numeric_columns].agg(agg_func)
+                    cache.add_to_groupby_cache(groupby_key, source_df.groupby(col)[numeric_columns].agg(agg_func))
 
 
         for base_ds in base_data_scopes:
@@ -210,8 +210,8 @@ class MetaInsightMiner:
                 for base_dp in base_dps:
                     if base_dp.pattern_type not in [PatternType.NONE, PatternType.OTHER]:
                         # If a valid basic pattern is found, extend the data scope to generate HDS
-                        hdp, pattern_cache = base_dp.create_hdp(group_by_dims=breakdown_dimensions, measures=measures,
-                                                                pattern_type=pattern_type, pattern_cache=pattern_cache,
+                        hdp = base_dp.create_hdp(group_by_dims=breakdown_dimensions, measures=measures,
+                                                                pattern_type=pattern_type,
                                                                 extend_by_measure=extend_by_measure, extend_by_breakdown=extend_by_breakdown)
 
                         # Pruning 1 - if the HDP is unlikely to form a commonness, discard it
@@ -219,7 +219,7 @@ class MetaInsightMiner:
                             continue
 
                         # Pruning 2: Discard HDS with extremely low impact
-                        hds_impact = hdp.compute_impact(datascope_cache, groupby_cache)
+                        hds_impact = hdp.compute_impact()
                         if hds_impact < MIN_IMPACT:
                             continue
 
@@ -235,7 +235,7 @@ class MetaInsightMiner:
 
             if metainsight:
                 # Calculate and assign the score
-                metainsight.compute_score(datascope_cache)
+                metainsight.compute_score()
                 if metainsight in metainsight_candidates:
                     other_metainsight = metainsight_candidates[metainsight]
                     if metainsight.score > other_metainsight.score:
@@ -258,8 +258,7 @@ if __name__ == "__main__":
     breakdown_dimensions = [['race', 'marital-status'],
                             ['native-country', 'label'],
                             ['race', 'label']]
-    measures = [('capital-gain', 'mean'), ('capital-loss', 'mean'),
-                ('hours-per-week', 'mean')]
+    measures = [('capital-gain', 'mean'), ('capital-loss', 'mean'),('hours-per-week', 'mean')]
 
     # Run the mining process
     import time

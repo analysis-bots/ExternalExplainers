@@ -94,6 +94,55 @@ class MetaInsight:
             ret_str += self._create_commonness_set_title(commonness)
         return ret_str
 
+
+    def _write_exceptions_list_string(self, category: PatternType, patterns: List[BasicDataPattern], category_name: str) -> str:
+        """
+        Helper function to create a string representation of a list of exception patterns.
+        :param category: The category of the exceptions.
+        :param patterns: The list of BasicDataPattern objects in this category.
+        :param category_name: The name of the category.
+        :return: A string representation of the exceptions in this category.
+        """
+        if not patterns:
+            return ""
+        if category_name.lower() not in ["no pattern", "no-pattern", "none", "highlight-change", "highlight change"]:
+            # If the category is "No Pattern" or "Highlight Change", we don't need to write anything
+            exceptions = [pattern for pattern in patterns if pattern.pattern_type not in [PatternType.NONE, PatternType.OTHER]]
+        else:
+            exceptions = [pattern for pattern in patterns if pattern.pattern_type == category]
+        subspaces = [pattern.data_scope.subspace for pattern in exceptions]
+        subspace_dict = defaultdict(list)
+        for subspace in subspaces:
+            for key, val in subspace.items():
+                subspace_dict[key].append(val)
+        out_str = f"Exceptions in category '{category_name}' ({len(exceptions)}): ["
+        for key, val in subspace_dict.items():
+            out_str += f"{key} = {val}, "
+        out_str = out_str[:-2] + "]\n"
+        return out_str
+
+    def get_exceptions_string(self):
+        """
+        A string representation of the list of exception categories.
+        :return:
+        """
+        exceptions_string = ""
+        for category, patterns in self.exceptions.items():
+            if not patterns:
+                continue
+            # No-Pattern category: create an array of
+            if category.lower() == "no-pattern" or category.lower() == "none":
+                exceptions_string += self._write_exceptions_list_string(PatternType.NONE, patterns, "No Pattern")
+            if category.lower() == "highlight-change" or category.lower() == "highlight change":
+                # Doesn't matter which PatternType we use here, so long as it is not None or PatternType.OTHER.
+                exceptions_string += self._write_exceptions_list_string(PatternType.UNIMODALITY, patterns, "Same pattern, different highlight")
+            elif category.lower() == "type-change" or category.lower() == "type change":
+                exceptions_string += self._write_exceptions_list_string(PatternType.OTHER, patterns, "Pattern type change")
+        if not exceptions_string:
+            exceptions_string = "All values belong to a commonness set, no exceptions found."
+        return exceptions_string
+
+
     @staticmethod
     def categorize_exceptions(commonness_set, exceptions):
         """

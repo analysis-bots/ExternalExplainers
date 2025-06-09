@@ -15,6 +15,8 @@ class PatternInterface(ABC):
         """
         Visualize the pattern.
         """
+        # Note for all the implementations below: all of them just use the visualize_many method internally,
+        # because that one handles all the complex cases already and can also visualize just one pattern.
         raise NotImplementedError("Subclasses must implement this method.")
 
     @abstractmethod
@@ -70,6 +72,22 @@ class PatternInterface(ABC):
         index_to_position = {idx: pos for pos, idx in enumerate(sorted_indices)}
 
         return index_to_position, sorted_indices
+
+
+    @staticmethod
+    def handle_sorted_indices(plt_ax, sorted_indices):
+        """
+        Handle setting x-ticks and labels for the plot based on sorted indices.
+        :param plt_ax: The matplotlib axes to set ticks on
+        :param sorted_indices: The sorted indices to use for x-ticks
+        """
+        # For large datasets, show fewer tick labels
+        step = max(1, len(sorted_indices) // 10)
+        positions = list(range(0, len(sorted_indices), step))
+        tick_labels = [str(sorted_indices[pos]) for pos in positions]
+
+        plt_ax.set_xticks(positions)
+        plt_ax.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=16)
 
 
     @staticmethod
@@ -129,13 +147,7 @@ class UnimodalityPattern(PatternInterface):
 
         # Set x-ticks to show original index values
         if sorted_indices:
-            # For large datasets, show fewer tick labels
-            step = max(1, len(sorted_indices) // 10)
-            positions = list(range(0, len(sorted_indices), step))
-            tick_labels = [str(sorted_indices[pos]) for pos in positions]
-
-            plt_ax.set_xticks(positions)
-            plt_ax.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=16)
+            PatternInterface.handle_sorted_indices(plt_ax, sorted_indices)
 
         # Set labels and title
         plt_ax.set_xlabel(patterns[0].index_name if patterns else 'Index')
@@ -173,19 +185,11 @@ class UnimodalityPattern(PatternInterface):
         Visualize the unimodality pattern.
         :return:
         """
-        plt_ax.plot(self.source_series)
-        plt_ax.set_xlabel(self.index_name)
-        plt_ax.set_ylabel(self.value_name)
-        # Emphasize the peak or valley
-        if self.type.lower() == 'peak':
-            plt_ax.plot(self.highlight_index, self.source_series[self.highlight_index], 'ro', label='Peak')
-        elif self.type.lower() == 'valley':
-            plt_ax.plot(self.highlight_index, self.source_series[self.highlight_index], 'bo', label='Valley')
-        plt_ax.legend(loc="upper left")
-        # Rotate x-axis tick labels
-        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=12)
+        self.visualize_many(plt_ax, [self], [self.value_name], title=None)
         if title is not None:
             plt_ax.set_title(title)
+        else:
+            plt_ax.set_title(f"{self.type} at {self.highlight_index} in {self.value_name}")
 
 
     def __eq__(self, other) -> bool:
@@ -289,13 +293,7 @@ class TrendPattern(PatternInterface):
 
         # Set x-ticks to show original index values
         if sorted_indices:
-            # For large datasets, show fewer tick labels
-            step = max(1, len(sorted_indices) // 10)
-            positions = list(range(0, len(sorted_indices), step))
-            tick_labels = [str(sorted_indices[pos]) for pos in positions]
-
-            plt_ax.set_xticks(positions)
-            plt_ax.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=16)
+            PatternInterface.handle_sorted_indices(plt_ax, sorted_indices)
 
         # Set labels and title
         if patterns:
@@ -336,20 +334,11 @@ class TrendPattern(PatternInterface):
         :param plt_ax:
         :return:
         """
-        plt_ax.plot(self.source_series)
-        plt_ax.set_xlabel(self.source_series.index.name if self.source_series.index.name else 'Index')
-        plt_ax.set_ylabel(self.value_name)
-        x_numeric = np.arange(len(self.source_series))
-        # Emphasize the trend
-        label = f"y={self.slope:.2f}x + {self.intercept:.2f}"
-        plt_ax.plot(self.source_series.index, self.slope * x_numeric + self.intercept, 'g--',
-                    linewidth=2,
-                    label=label)
-        plt_ax.legend(loc="upper left")
-        # Rotate x-axis tick labels
-        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=12)
+        self.visualize_many(plt_ax, [self], [self.value_name], title=None)
         if title is not None:
             plt_ax.set_title(title)
+        else:
+            plt_ax.set_title(f"{self.type} trend in {self.value_name} with slope {self.slope:.2f} and intercept {self.intercept:.2f}")
 
     def __eq__(self, other) -> bool:
         """
@@ -452,13 +441,7 @@ class OutlierPattern(PatternInterface):
 
         # Set x-ticks to show original index values
         if sorted_indices:
-            # For large datasets, show fewer tick labels
-            step = max(1, len(sorted_indices) // 10)
-            positions = list(range(0, len(sorted_indices), step))
-            labels = [str(sorted_indices[pos]) for pos in positions]
-
-            plt_ax.set_xticks(positions)
-            plt_ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=16)
+            PatternInterface.handle_sorted_indices(plt_ax, sorted_indices)
 
         # Setup the rest of the plot
         from matplotlib.lines import Line2D
@@ -505,34 +488,11 @@ class OutlierPattern(PatternInterface):
         :param plt_ax:
         :return:
         """
-        index_to_position, sorted_indices = PatternInterface.prepare_patterns_for_visualization([self])
-        positions = [index_to_position[idx] for idx in self.source_series.index]
-        values = self.source_series.values
-        plt_ax.scatter(positions, values, label='Regular Data Point')
-        plt_ax.set_xlabel(self.source_series.index.name if self.source_series.index.name else 'Index')
-        plt_ax.set_ylabel(self.value_name)
-        # Emphasize the outliers
-        # Map outliers to positions
-        outlier_positions = []
-        outlier_values = []
-
-        for idx in self.outlier_indexes:
-            if idx in self.source_series.index:
-                outlier_positions.append(index_to_position[idx])
-                outlier_values.append(self.source_series.loc[idx])
-        plt_ax.scatter(outlier_positions, outlier_values, color='red', label='Outliers')
-        plt_ax.legend(loc="upper left")
-        # Set x-ticks to show original index values
-        if sorted_indices:
-            # For large datasets, show fewer tick labels
-            step = max(1, len(sorted_indices) // 10)
-            positions = list(range(0, len(sorted_indices), step))
-            labels = [str(sorted_indices[pos]) for pos in positions]
-
-            plt_ax.set_xticks(positions)
-            plt_ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=16)
+        self.visualize_many(plt_ax, [self], [self.value_name], title=None)
         if title is not None:
             plt_ax.set_title(title)
+        else:
+            plt_ax.set_title(f"Outliers in {self.value_name} at {self.outlier_indexes.tolist()}")
 
 
     def __eq__(self, other):
@@ -705,13 +665,7 @@ class CyclePattern(PatternInterface):
 
         # Set x-ticks to show original index values
         if sorted_indices:
-            # For large datasets, show fewer tick labels
-            step = max(1, len(sorted_indices) // 10)
-            positions = list(range(0, len(sorted_indices), step))
-            tick_labels = [str(sorted_indices[pos]) for pos in positions]
-
-            plt_ax.set_xticks(positions)
-            plt_ax.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=16)
+            PatternInterface.handle_sorted_indices(plt_ax, sorted_indices)
 
         # Set labels and title
         if patterns:
@@ -749,22 +703,11 @@ class CyclePattern(PatternInterface):
         :param plt_ax:
         :return:
         """
-        plt_ax.plot(self.source_series)
-        plt_ax.set_xlabel(self.source_series.index.name if self.source_series.index.name else 'Index')
-        plt_ax.set_ylabel(self.value_name)
-        i = 1
-        # Emphasize the cycles, and alternate colors
-        colors = ['red', 'blue', 'green', 'orange', 'purple']
-        color_index = 0
-        for _, cycle in self.cycles.iterrows():
-            plt_ax.axvspan(cycle['t_start'], cycle['t_end'], color=colors[color_index], alpha=0.5, label=f'Cycle {i}')
-            i += 1
-            color_index = (color_index + 1) % len(colors)
-        plt_ax.legend(loc="upper left")
-        # Rotate x-axis tick labels
-        plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=12)
+        self.visualize_many(plt_ax, [self], [self.value_name], title=None, alpha_cycles=0.5, line_alpha=0.8)
         if title is not None:
             plt_ax.set_title(title)
+        else:
+            plt_ax.set_title(f"Cycles in {self.value_name} at {self._cycle_tuples}")
 
     def __eq__(self, other):
         """

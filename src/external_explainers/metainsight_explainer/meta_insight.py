@@ -143,6 +143,17 @@ class MetaInsight:
         return exceptions_string
 
 
+    def to_str_full(self):
+        """
+        :return: A full string representation of the MetaInsight, including commonness sets and exceptions.
+        """
+        ret_str = self.__str__()
+        if len(self.exceptions) > 0:
+            ret_str += f"Exceptions to this pattern were found:\n"
+        ret_str += self.get_exceptions_string()
+        return ret_str
+
+
     @staticmethod
     def categorize_exceptions(commonness_set, exceptions):
         """
@@ -503,13 +514,14 @@ class MetaInsight:
             labels.append(f"{subspace_str}")
         return labels
 
-    def visualize(self, fig=None, subplot_spec=None, figsize=(15, 10)) -> None:
+    def visualize(self, fig=None, subplot_spec=None, figsize=(15, 10), additional_text: str = None) -> None:
         """
         Visualize the metainsight, showing commonness sets on the left and exceptions on the right.
 
         :param fig: Matplotlib figure to plot on. If None, a new figure is created.
         :param subplot_spec: GridSpec to plot on. If None, a new GridSpec is created.
         :param figsize: Size of the figure if a new one is created.
+        :param additional_text: Optional additional text to display in the bottom-middle of the figure.
         """
         # Create a new figure if not provided
         # n_cols = 2 if self.exceptions and len(self.exceptions) > 0 else 1
@@ -518,17 +530,28 @@ class MetaInsight:
         n_cols = 2
         if fig is None:
             fig = plt.figure(figsize=figsize)
+        if subplot_spec is None:
             outer_grid = gridspec.GridSpec(1, n_cols, width_ratios=[1] * n_cols, figure=fig, wspace=0.2)
         else:
-            if subplot_spec is None:
-                outer_grid = gridspec.GridSpec(1, n_cols, width_ratios=[1] * n_cols, figure=fig, wspace=0.2)
-            else:
-                outer_grid = gridspec.GridSpecFromSubplotSpec(1, n_cols, width_ratios=[1] * n_cols,
-                                                              subplot_spec=subplot_spec, wspace=0.2)
+            outer_grid = gridspec.GridSpecFromSubplotSpec(1, n_cols, width_ratios=[1] * n_cols,
+                                                          subplot_spec=subplot_spec, wspace=0.2)
+
+        # Wrap the existing 1x2 layout in a 2-row local GridSpec
+        if additional_text:
+            wrapper_gs = gridspec.GridSpecFromSubplotSpec(
+                2, 1, subplot_spec=subplot_spec, height_ratios=[10, 1], hspace=0.8
+            )
+        else:
+            wrapper_gs = gridspec.GridSpecFromSubplotSpec(
+                1, 1, subplot_spec=subplot_spec
+            )
+        top_gs = gridspec.GridSpecFromSubplotSpec(
+            1, 2, subplot_spec=wrapper_gs[0], wspace=0.2
+        )
 
         # Set up the left side for commonness sets
-        left_grid = gridspec.GridSpecFromSubplotSpec(1, len(self.commonness_set) or 1,
-                                                     subplot_spec=outer_grid[0, 0], wspace=0.3)
+        left_grid = gridspec.GridSpecFromSubplotSpec(1, len(self.commonness_set),
+                                                     subplot_spec=top_gs[0, 0], wspace=0.3)
 
         # Plot each commonness set in its own column
         for i, commonness_set in enumerate(self.commonness_set):
@@ -567,7 +590,7 @@ class MetaInsight:
             # Else, we create a grid where the last row is smaller if there are None exceptions.
             if not none_patterns_exist:
                 right_grid = gridspec.GridSpecFromSubplotSpec(len(self.exceptions), 1,
-                                                              subplot_spec=outer_grid[0, 1],
+                                                              subplot_spec=top_gs[0, 1],
                                                               hspace=1.2)  # Add more vertical space
             else:
                 # If there are None exceptions, place them at the bottom with very little space, since it just text
@@ -686,6 +709,15 @@ class MetaInsight:
                             pattern.highlight.visualize(ax, title=title)
 
                 i += 1
+
+        # If there is additional text, add it to the bottom middle of the grid
+        if additional_text:
+            text_ax = fig.add_subplot(wrapper_gs[1])
+            text_ax.axis('off')
+            text_ax.text(
+                0.5, 0.5, additional_text,
+                ha='center', va='center'
+            )
 
         # Allow more space for the figure elements
         plt.subplots_adjust(bottom=0.15, top=0.9)  # Adjust bottom and top margins

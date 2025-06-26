@@ -281,10 +281,6 @@ class TrendPattern(PatternInterface):
             x_positions = [index_to_position[idx] for idx in pattern.source_series.index]
             values = pattern.source_series.values
 
-            # Plot the raw data with reduced opacity if requested
-            if show_data:
-                plt_ax.plot(x_positions, values, color=color, alpha=alpha_data, linewidth=1)
-
             # Plot the trend line using numeric positions
             trend_label = f"{label}"
             x_range = np.arange(len(sorted_indices))
@@ -294,6 +290,29 @@ class TrendPattern(PatternInterface):
         # Set x-ticks to show original index values
         if sorted_indices:
             PatternInterface.handle_sorted_indices(plt_ax, sorted_indices)
+
+        # Compute the mean value across the data as a whole, and visualize that line, if show_data is True
+        if show_data:
+            # Collect all data points from all patterns
+            mean_dict = {
+                idx: [] for idx in index_to_position.keys()
+            }
+            for idx in index_to_position:
+                for pattern in patterns:
+                    if idx in pattern.source_series.index:
+                        mean_dict[idx].append(pattern.source_series.loc[idx])
+            # Compute the overall mean series
+            overall_mean_series = pd.Series(
+                {idx: np.mean(values) for idx, values in mean_dict.items()},
+                name='Overall Mean Data',
+                index=index_to_position
+            )
+            mean_x_positions = [index_to_position.get(idx) for idx in overall_mean_series.index if
+                                idx in index_to_position]
+            mean_values = [overall_mean_series.loc[idx] for idx in overall_mean_series.index if
+                           idx in index_to_position]
+            plt_ax.plot(mean_x_positions, mean_values, color='gray', alpha=1, linewidth=5,
+                        label='Mean Over Distribution')
 
         # Set labels and title
         if patterns:

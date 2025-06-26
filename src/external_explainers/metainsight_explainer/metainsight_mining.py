@@ -254,11 +254,19 @@ if __name__ == "__main__":
     print(df.columns)
 
     # Define dimensions, measures
-    dimensions = ['marital-status', 'workclass', 'education-num']
-    breakdown_dimensions = [['race', 'marital-status'],
-                            ['native-country', 'label'],
-                            ['race', 'label']]
-    measures = [('capital-gain', 'mean'), ('capital-loss', 'mean'),('hours-per-week', 'mean')]
+    dimensions = ['education', 'occupation', 'marital-status']
+    breakdown_dimensions = [['age'],
+                            ['education-num'],
+                            ['occupation'],
+                            ['marital-status'],
+                            ]
+    measures = [
+                ('capital-gain', 'mean'),
+                ('capital-loss', 'mean'),
+                ('hours-per-week', 'mean'),
+                ('income', 'count'),
+                ('education-num', 'mean'),
+                ]
 
     # Run the mining process
     import time

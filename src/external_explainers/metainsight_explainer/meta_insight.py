@@ -716,7 +716,7 @@ class MetaInsight:
             text_ax.axis('off')
             text_ax.text(
                 0.5, 0.5, additional_text,
-                ha='center', va='center'
+                ha='center', va='center', fontsize=18
             )
 
         # Allow more space for the figure elements

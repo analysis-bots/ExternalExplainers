@@ -239,7 +239,7 @@ class TrendPattern(PatternInterface):
 
     @staticmethod
     def visualize_many(plt_ax, patterns: List['TrendPattern'], labels: List[str], title: str = None,
-                       show_data: bool = True, alpha_data: float = 0.6) -> None:
+                       show_data: bool = True, alpha_data: float = 0.5) -> None:
         """
         Visualize multiple trend patterns on a single plot.
 
@@ -285,7 +285,7 @@ class TrendPattern(PatternInterface):
             trend_label = f"{label}"
             x_range = np.arange(len(sorted_indices))
             plt_ax.plot(x_range, pattern.slope * x_range + pattern.intercept,
-                        linestyle=line_style, color=color, linewidth=2, label=trend_label)
+                        linestyle=line_style, color=color, linewidth=2, label=trend_label + " (trend line)")
 
         # Set x-ticks to show original index values
         if sorted_indices:
@@ -311,8 +311,8 @@ class TrendPattern(PatternInterface):
                                 idx in index_to_position]
             mean_values = [overall_mean_series.loc[idx] for idx in overall_mean_series.index if
                            idx in index_to_position]
-            plt_ax.plot(mean_x_positions, mean_values, color='gray', alpha=1, linewidth=5,
-                        label='Mean Over Distribution')
+            plt_ax.plot(mean_x_positions, mean_values, color='gray', alpha=alpha_data, linewidth=5,
+                        label='Mean Over All Data')
 
         # Set labels and title
         if patterns:

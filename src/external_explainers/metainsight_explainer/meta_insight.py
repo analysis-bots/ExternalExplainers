@@ -505,9 +505,12 @@ class MetaInsight:
         for pattern in patterns:
             subspace_str = ""
             for key, val in pattern.data_scope.subspace.items():
-                split = val.split("<=")
-                if len(split) > 1:
-                    subspace_str += f"{val}"
+                if isinstance(val, str):
+                    split = val.split("<=")
+                    if len(split) > 1:
+                        subspace_str += f"{val}"
+                    else:
+                        subspace_str += f"{key} = {val}, "
                 else:
                     subspace_str += f"{key} = {val}, "
 

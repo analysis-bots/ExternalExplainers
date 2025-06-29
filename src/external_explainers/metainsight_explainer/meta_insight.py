@@ -1,3 +1,4 @@
+from cmath import isnan
 from collections import defaultdict
 from typing import List, Dict
 
@@ -6,6 +7,8 @@ import matplotlib.gridspec as gridspec
 import textwrap
 
 import math
+
+import numpy as np
 
 from external_explainers.metainsight_explainer.data_pattern import HomogenousDataPattern
 from external_explainers.metainsight_explainer.data_pattern import BasicDataPattern
@@ -339,6 +342,9 @@ class MetaInsight:
         if not isinstance(other, MetaInsight):
             raise ValueError("The other object must be an instance of MetaInsight.")
         overlap_ratio = self.compute_pairwise_overlap_ratio(other)
+        if self.score == float('inf') or other.score == float('inf') or isnan(self.score) or isnan(other.score):
+            # If either score is infinite or NaN, return 0 to avoid infinite overlap score
+            return 0.0
         return min(self.score, other.score) * overlap_ratio
 
 

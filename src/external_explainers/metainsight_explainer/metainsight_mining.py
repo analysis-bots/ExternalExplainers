@@ -1,4 +1,5 @@
 import itertools
+from cmath import isnan
 from typing import List, Tuple
 import numpy as np
 from queue import PriorityQueue
@@ -105,7 +106,11 @@ class MetaInsightMiner:
                 total_use_with_candidate = total_use_approx + (candidate.score - sum(
                     mi.compute_pairwise_overlap_score(candidate) for mi in selected_metainsights))
 
-                gain = total_use_with_candidate - total_use_approx
+                # Rare case where gain can't be computed due to NaN or infinite values
+                if total_use_with_candidate == float('inf') or total_use_approx == float('inf') or isnan(total_use_with_candidate) or isnan(total_use_approx):
+                    gain = 0
+                else:
+                    gain = total_use_with_candidate - total_use_approx
                 # Added penalty for repeating the same pattern types
                 variety_factor = self._compute_variety_factor(candidate, included_pattern_types_count)
                 gain *= variety_factor

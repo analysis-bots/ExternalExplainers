@@ -1,14 +1,27 @@
 from abc import ABC, abstractmethod
+from collections import defaultdict
+
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 from typing import Literal, List
+from sklearn.cluster import KMeans
 
 
 class PatternInterface(ABC):
     """
     Abstract base class for defining patterns.
     """
+
+    def __init__(self, source_series: pd.Series, value_name: str = None):
+        """
+        Initialize the pattern with the source series.
+        :param source_series: The source series to evaluate.
+        """
+        self.source_series = source_series
+        self.index_name = source_series.index.name if source_series.index.name else 'Index'
+        self.value_name = value_name if value_name else 'Value'
+        self.hash = None
 
     @abstractmethod
     def visualize(self, plt_ax, title: str = None) -> None:
@@ -102,6 +115,81 @@ class PatternInterface(ABC):
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
+
+    @staticmethod
+    def compute_mean_series(patterns: List['PatternInterface'],
+                            index_to_position: dict, names: list[str] | str | None = None) -> pd.Series:
+        """
+        Compute the mean series across multiple patterns.
+        :param patterns: List of PatternInterface objects
+        :return: A pandas Series representing the mean values across all patterns
+        """
+        # Create a dictionary to hold the mean values for each index
+        mean_dict = {
+            idx: [] for idx in index_to_position.keys()
+        }
+        for idx in index_to_position:
+            for pattern in patterns:
+                if idx in pattern.source_series.index:
+                    mean_dict[idx].append(pattern.source_series.loc[idx])
+        # If names are provided, use them as the series name
+        if names is not None:
+            if isinstance(names, list):
+                names = ', '.join(names)
+            elif isinstance(names, str):
+                names = names
+            else:
+                names = None
+        # If there is a final ',' at the end of the names, remove it
+        if isinstance(names, str):
+            names = names.strip()
+        if names and names.endswith(','):
+            names = names[:-1]
+        # Compute the overall mean series
+        overall_mean_series = pd.Series(
+            {idx: np.mean(values) for idx, values in mean_dict.items() if values},
+            name=names if names is not None else 'Overall Mean Data',
+            index=index_to_position
+        )
+
+        overall_mean_series = overall_mean_series.dropna()
+        return overall_mean_series
+
+
+    @staticmethod
+    def group_similar_together(patterns: List['PatternInterface'], index_to_position, num_groups: int = 3)\
+            -> List[List['PatternInterface']]:
+        """
+        Group similar patterns together using KMeans clustering.
+        :param patterns: List of PatternInterface objects to group
+        :param num_groups: Number of groups to form
+        :return: A list of lists, where each sublist contains patterns in the same group
+        """
+        cluterer = KMeans(n_clusters=num_groups)
+        # Use index_to_position, where the keys contain the entire index of the series, to create a 2D array,
+        # where each row corresponds to a pattern and each column corresponds to a position in the series.
+        # This will allow us to cluster patterns based on their source series values, filling in NaNs where necessary.
+        clutering_array = np.zeros((len(patterns), len(index_to_position)))
+        for i, pattern in enumerate(patterns):
+            # Fill the array with the values from the source series, using the index_to_position mapping
+            for idx, pos in index_to_position.items():
+                if idx in pattern.source_series.index:
+                    clutering_array[i, pos] = pattern.source_series.loc[idx]
+                else:
+                    clutering_array[i, pos] = 0 # Use 0 for missing values, since both NaN and infinity cause issues with KMeans
+        # Fit the KMeans model
+        cluterer.fit(clutering_array)
+        # Get cluster labels
+        labels = cluterer.labels_
+        # Group patterns by their cluster labels
+        grouped_patterns = {
+            i: [] for i in range(num_groups)
+        }
+        for pattern, label in zip(patterns, labels):
+            grouped_patterns[label].append(pattern)
+        # Return the grouped patterns as a list of lists
+        return [grouped_patterns[i] for i in range(num_groups)], labels
+
     __name__ = "PatternInterface"
 
 
@@ -117,12 +205,40 @@ class UnimodalityPattern(PatternInterface):
         :param plt_ax: Matplotlib axes to plot on
         :param patterns: List of UnimodalityPattern objects
         :param labels: List of labels for each pattern (e.g. data scope descriptions)
+        :param title: Optional custom title for the plot
         """
         # Define a color cycle for lines
         colors = plt.cm.tab10.colors
 
         # Prepare patterns with consistent numeric positions
         index_to_position, sorted_indices = PatternInterface.prepare_patterns_for_visualization(patterns)
+        grouped = False
+
+        if len(patterns) > 3:
+            pattern_groupings, pattern_labels = PatternInterface.group_similar_together(patterns,
+                                                                        index_to_position,
+                                                                        num_groups=3)
+            # Collect the labels for each group, such that each group of patterns has an array
+            # containing all of the labels for the patterns in that group.
+            grouped_labels = defaultdict(list)
+            for i, val in enumerate(pattern_labels):
+                grouped_labels[val].append(labels[i])
+            pattern_means = [PatternInterface.compute_mean_series(
+                group, index_to_position,
+                names=grouped_labels[i])
+                for i, group in enumerate(pattern_groupings)
+            ]
+            patterns = [
+                UnimodalityPattern(source_series=mean_pattern,
+                                   type=patterns[0].type,
+                                      highlight_index=patterns[0].highlight_index,
+                                      value_name=patterns[0].value_name
+                                   )
+                for mean_pattern in pattern_means
+            ]
+            labels = [
+                f"Mean ({mean_pattern.name})" for mean_pattern in pattern_means
+            ]
 
         # Plot each pattern
         for i, (pattern, label) in enumerate(zip(patterns, labels)):
@@ -173,11 +289,10 @@ class UnimodalityPattern(PatternInterface):
         :param highlight_index: The index of the peak or valley.
         :param value_name: The name of the value to display.
         """
-        self.source_series = source_series
+        super().__init__(source_series, value_name)
         self.type = type
         self.highlight_index = highlight_index
         self.index_name = source_series.index.name if source_series.index.name else 'Index'
-        self.value_name = value_name if value_name else 'Value'
         self.hash = None
 
     def visualize(self, plt_ax, title: str = None) -> None:
@@ -293,20 +408,7 @@ class TrendPattern(PatternInterface):
 
         # Compute the mean value across the data as a whole, and visualize that line, if show_data is True
         if show_data:
-            # Collect all data points from all patterns
-            mean_dict = {
-                idx: [] for idx in index_to_position.keys()
-            }
-            for idx in index_to_position:
-                for pattern in patterns:
-                    if idx in pattern.source_series.index:
-                        mean_dict[idx].append(pattern.source_series.loc[idx])
-            # Compute the overall mean series
-            overall_mean_series = pd.Series(
-                {idx: np.mean(values) for idx, values in mean_dict.items()},
-                name='Overall Mean Data',
-                index=index_to_position
-            )
+            overall_mean_series = PatternInterface.compute_mean_series(patterns, index_to_position)
             mean_x_positions = [index_to_position.get(idx) for idx in overall_mean_series.index if
                                 idx in index_to_position]
             mean_values = [overall_mean_series.loc[idx] for idx in overall_mean_series.index if
@@ -340,11 +442,10 @@ class TrendPattern(PatternInterface):
         :param type: The type of the pattern.
         :param slope: The slope of the trend.
         """
-        self.source_series = source_series
+        super().__init__(source_series, value_name)
         self.type = type
         self.slope = slope
         self.intercept = intercept
-        self.value_name = value_name if value_name else 'Value'
         self.hash = None
 
     def visualize(self, plt_ax, title: str = None) -> None:
@@ -495,10 +596,9 @@ class OutlierPattern(PatternInterface):
         :param outlier_indexes: The indexes of the outliers.
         :param outlier_values: The values of the outliers.
         """
-        self.source_series = source_series
+        super().__init__(source_series, value_name)
         self.outlier_indexes = outlier_indexes
         self.outlier_values = outlier_values
-        self.value_name = value_name if value_name else 'Value'
         self.hash = None
 
     def visualize(self, plt_ax, title: str = None) -> None:
@@ -709,12 +809,11 @@ class CyclePattern(PatternInterface):
         :param source_series: The source series to evaluate.
         :param cycles: The cycles detected in the series.
         """
-        self.source_series = source_series
+        super().__init__(source_series, value_name)
         # Cycles is a dataframe with the columns: t_start, t_end, t_minimum, doc, duration
         self.cycles = cycles
         self.hash = None
         self._cycle_tuples = frozenset((row['t_start'], row['t_end']) for _, row in cycles.iterrows())
-        self.value_name = value_name if value_name else 'Value'
 
     def visualize(self, plt_ax, title: str = None):
         """

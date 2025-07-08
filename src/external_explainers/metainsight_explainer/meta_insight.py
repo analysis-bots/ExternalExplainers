@@ -513,12 +513,14 @@ class MetaInsight:
             for key, val in pattern.data_scope.subspace.items():
                 if isinstance(val, str):
                     split = val.split("<=")
+                    # If the value is a range (e.g. "0.1 <= x <= 0.5"), split it and format it by the range values.
+                    # Otherwise, just use the value as is.
                     if len(split) > 1:
-                        subspace_str += f"{val}"
+                        subspace_str += f"({split[0], split[2]})"
                     else:
-                        subspace_str += f"{key} = {val}, "
+                        subspace_str += f"{val}"
                 else:
-                    subspace_str += f"{key} = {val}, "
+                    subspace_str += f"{val}"
 
             labels.append(f"{subspace_str}")
         return labels

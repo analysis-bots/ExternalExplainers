@@ -566,7 +566,7 @@ class MetaInsight:
 
         # Plot each commonness set in its own column
         for i, commonness_set in enumerate(self.commonness_set):
-            if not commonness_set:  # Skip empty sets
+            if not commonness_set:  # Skip empty sets, though this should not happen
                 continue
 
             # Create a subplot for this commonness set
@@ -581,17 +581,34 @@ class MetaInsight:
             # Create labels based on subspace
             labels = self._create_labels(commonness_set)
 
-            # Create title for this commonness set
-            title = self._create_commonness_set_title(commonness_set)
-            # Wrap title to prevent overflowing
-            title = textwrap.fill(title, width=40)
+            gb_col = commonness_set[0].data_scope.breakdown
+            agg_func = commonness_set[0].data_scope.measure[1]
+
+            # If there are highlight change exceptions of the same type, we add them to the visualization
+            if len(self.exceptions) > 0 and "Highlight-Change" in self.exceptions:
+                # Get the highlight change exceptions for this commonness set
+                highlight_change_exceptions = [pattern for pattern in self.exceptions["Highlight-Change"]
+                                               if pattern.data_scope.breakdown == gb_col and
+                                               pattern.data_scope.measure == commonness_set[0].data_scope.measure]
+                if highlight_change_exceptions:
+                    exception_labels = self._create_labels(highlight_change_exceptions)
+                    highlight_change_exceptions = [pattern.highlight for pattern in highlight_change_exceptions]
+                else:
+                    exception_labels = None
+                    highlight_change_exceptions = None
+            else:
+                highlight_change_exceptions = None
+                exception_labels = None
 
             # Call the appropriate visualize_many function based on pattern type
             if highlights:
                 if hasattr(highlights[0], "visualize_many"):
-                    highlights[0].visualize_many(plt_ax=ax, patterns=highlights, labels=labels, title=title)
-                else:
-                    ax.set_title(title)
+                    highlights[0].visualize_many(plt_ax=ax, patterns=highlights, labels=labels,
+                                                 gb_col=gb_col,
+                                                 agg_func=agg_func, commonness_threshold=self.commonness_threshold,
+                                                 exception_patterns=highlight_change_exceptions,
+                                                exception_labels=exception_labels
+                                                 )
 
         # Handle exceptions area if there are any
         if self.exceptions and n_cols > 1:
@@ -652,72 +669,55 @@ class MetaInsight:
                 if category.lower() == "none" or category.lower() == "no-pattern":
                     continue
 
-
-                # For "highlight change" category, visualize all in one plot
-                if category.lower() == "highlight-change" or category.lower() == "highlight change":
-                    ax = fig.add_subplot(right_grid[i, 0])
-                    # ax.set_facecolor((0.8, 0.9, 1.0, 0.2))  # Light blue with alpha
-
-                    # Get the highlights for visualization
-                    highlights = [pattern.highlight for pattern in exception_patterns]
-
-                    # Create labels based on subspace and measure
-                    labels = self._create_labels(exception_patterns)
-
-                    title = f"Same pattern, different highlights ({len(exception_patterns)})"
-
-                    if highlights and hasattr(highlights[0], "visualize_many"):
-                        highlights[0].visualize_many(plt_ax=ax, patterns=highlights, labels=labels, title=title)
-
-                # For "type change" or other categories, create a nested grid
-                elif category.lower() == "type-change" or category.lower() == "type change":
-                    # Make sure there are highlights to visualize
-                    highlights = [pattern.highlight for pattern in exception_patterns]
-                    if all(highlight is None for highlight in highlights):
-                        continue
-
-                    # Create a nested grid for this row with more space
-                    type_grid = gridspec.GridSpecFromSubplotSpec(2, 1,
-                                                                 subplot_spec=right_grid[i, 0],
-                                                                 height_ratios=[1, 15], hspace=0.6, wspace=0.3)
-
-                    # Add title for the category in the first row
-                    title_ax = fig.add_subplot(type_grid[0, 0])
-                    title_ax.axis('off')
-                    title_ax.set_facecolor((0.8, 0.9, 1.0, 0.2))
-                    title_ax.text(0.5, 0,
-                                  s=f"Different patterns types detected ({len(exception_patterns)})",
-                                  horizontalalignment='center',
-                                  verticalalignment='center',
-                                  fontsize=16,
-                                  fontweight='bold'
-                    )
-
-                    # Create subplots for each pattern in the second row
-                    num_patterns = len(exception_patterns)
-                    # At most 2 patterns per row
-                    n_cols = 2 if num_patterns >= 2 else 1
-                    n_rows = math.ceil(num_patterns / n_cols)
-                    pattern_grid = gridspec.GridSpecFromSubplotSpec(n_rows, n_cols,
-                                                                    subplot_spec=type_grid[1, 0],
-                                                                    wspace=0.4, hspace=0.6)  # More horizontal space
-
-
-                    for j, pattern in enumerate(exception_patterns):
-                        col_index = j % n_cols
-                        row_index = j // n_cols
-                        ax = fig.add_subplot(pattern_grid[row_index, col_index])
-                        # ax.set_facecolor((0.8, 0.9, 1.0, 0.2))  # Light blue with alpha
-
-                        # Format labels for title
-                        subspace_str = ", ".join([f"{key}={val}" for key, val in pattern.data_scope.subspace.items()])
-
-                        title = f"{pattern.highlight.__name__} when {subspace_str}"
-                        title = "\n".join(textwrap.wrap(title, 30))  # Wrap title to prevent overflow
-
-                        # Visualize the individual pattern with internal legend
-                        if pattern.highlight:
-                            pattern.highlight.visualize(ax, title=title)
+                # # For "type change" or other categories, create a nested grid
+                # elif category.lower() == "type-change" or category.lower() == "type change":
+                #     # Make sure there are highlights to visualize
+                #     highlights = [pattern.highlight for pattern in exception_patterns]
+                #     if all(highlight is None for highlight in highlights):
+                #         continue
+                #
+                #     # Create a nested grid for this row with more space
+                #     type_grid = gridspec.GridSpecFromSubplotSpec(2, 1,
+                #                                                  subplot_spec=right_grid[i, 0],
+                #                                                  height_ratios=[1, 15], hspace=0.6, wspace=0.3)
+                #
+                #     # Add title for the category in the first row
+                #     title_ax = fig.add_subplot(type_grid[0, 0])
+                #     title_ax.axis('off')
+                #     title_ax.set_facecolor((0.8, 0.9, 1.0, 0.2))
+                #     title_ax.text(0.5, 0,
+                #                   s=f"Different patterns types detected ({len(exception_patterns)})",
+                #                   horizontalalignment='center',
+                #                   verticalalignment='center',
+                #                   fontsize=16,
+                #                   fontweight='bold'
+                #     )
+                #
+                #     # Create subplots for each pattern in the second row
+                #     num_patterns = len(exception_patterns)
+                #     # At most 2 patterns per row
+                #     n_cols = 2 if num_patterns >= 2 else 1
+                #     n_rows = math.ceil(num_patterns / n_cols)
+                #     pattern_grid = gridspec.GridSpecFromSubplotSpec(n_rows, n_cols,
+                #                                                     subplot_spec=type_grid[1, 0],
+                #                                                     wspace=0.4, hspace=0.6)  # More horizontal space
+                #
+                #
+                #     for j, pattern in enumerate(exception_patterns):
+                #         col_index = j % n_cols
+                #         row_index = j // n_cols
+                #         ax = fig.add_subplot(pattern_grid[row_index, col_index])
+                #         # ax.set_facecolor((0.8, 0.9, 1.0, 0.2))  # Light blue with alpha
+                #
+                #         # Format labels for title
+                #         subspace_str = ", ".join([f"{key}={val}" for key, val in pattern.data_scope.subspace.items()])
+                #
+                #         title = f"{pattern.highlight.__name__} when {subspace_str}"
+                #         title = "\n".join(textwrap.wrap(title, 30))  # Wrap title to prevent overflow
+                #
+                #         # Visualize the individual pattern with internal legend
+                #         if pattern.highlight:
+                #             pattern.highlight.visualize(ax, title=title)
 
                 i += 1
 

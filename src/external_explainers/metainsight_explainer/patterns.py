@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
+import textwrap
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -48,14 +49,12 @@ class PatternInterface(ABC):
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
-
     @abstractmethod
     def __str__(self) -> str:
         """
         String representation of the pattern.
         """
         raise NotImplementedError("Subclasses must implement this method.")
-
 
     @abstractmethod
     def __hash__(self) -> int:
@@ -86,7 +85,6 @@ class PatternInterface(ABC):
 
         return index_to_position, sorted_indices
 
-
     @staticmethod
     def handle_sorted_indices(plt_ax, sorted_indices):
         """
@@ -102,19 +100,26 @@ class PatternInterface(ABC):
         plt_ax.set_xticks(positions)
         plt_ax.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=16)
 
-
     @staticmethod
     @abstractmethod
-    def visualize_many(plt_ax, patterns: List['PatternInterface'], labels:List[str], title: str = None) -> None:
+    def visualize_many(plt_ax, patterns: List['PatternInterface'], labels: List[str],
+                       agg_func: str, commonness_threshold: float,
+                       gb_col: str,
+                       exception_patterns: List['PatternInterface'] = None,
+                       exception_labels: List[str] = None) -> None:
         """
         Visualize many patterns of the same type on the same plot.
         :param plt_ax: The matplotlib axes to plot on
         :param patterns: The patterns to plot
         :param labels: The labels to display in the legend.
-        :param title: The title of the plot
+        :param agg_func: Name of the aggregation function used (e.g. 'mean', 'sum') when creating the series that lead to the pattern discovery.
+        :param commonness_threshold: Threshold for commonness (e.g. 0.5 for 50%) used when creating the MetaInsights.
+        :param gb_col: The column used for grouping the data when creating the series that lead to the pattern discovery.
+        :param exception_patterns: Patterns that are of the same type as the common patterns, but are exceptions to
+        those common patterns. Should be greatly highlighted in the plot if not None.
+        :param exception_labels: Labels for the exception patterns, if exception_patterns is not None.
         """
         raise NotImplementedError("Subclasses must implement this method.")
-
 
     @staticmethod
     def compute_mean_series(patterns: List['PatternInterface'],
@@ -155,10 +160,9 @@ class PatternInterface(ABC):
         overall_mean_series = overall_mean_series.dropna()
         return overall_mean_series
 
-
     @staticmethod
-    def group_similar_together(patterns: List['PatternInterface'], index_to_position, num_groups: int = 3)\
-            -> List[List['PatternInterface']]:
+    def group_similar_together(patterns: List['PatternInterface'], index_to_position, num_groups: int = 3) \
+            -> tuple[List[List['PatternInterface']], List[int]]:
         """
         Group similar patterns together using KMeans clustering.
         :param patterns: List of PatternInterface objects to group
@@ -176,7 +180,8 @@ class PatternInterface(ABC):
                 if idx in pattern.source_series.index:
                     clutering_array[i, pos] = pattern.source_series.loc[idx]
                 else:
-                    clutering_array[i, pos] = 0 # Use 0 for missing values, since both NaN and infinity cause issues with KMeans
+                    clutering_array[
+                        i, pos] = 0  # Use 0 for missing values, since both NaN and infinity cause issues with KMeans
         # Fit the KMeans model
         cluterer.fit(clutering_array)
         # Get cluster labels
@@ -190,57 +195,114 @@ class PatternInterface(ABC):
         # Return the grouped patterns as a list of lists
         return [grouped_patterns[i] for i in range(num_groups)], labels
 
-    __name__ = "PatternInterface"
-
-
-class UnimodalityPattern(PatternInterface):
-
-    __name__ = "Unimodality pattern"
+    @staticmethod
+    def labels_to_grouped_labels(labels: List[str], pattern_labels: List[int]) -> defaultdict:
+        """
+        Collect the labels for each group, such that each group of patterns has an array
+        containing all of the labels for the patterns in that group.
+        :param labels: The string labels for each pattern
+        :param pattern_labels: The integer group labels for each pattern
+        :return: A defaultdict mapping group labels to a string saying Mean ({labels}) for each group
+        """
+        grouped_labels = defaultdict(list)
+        for i, val in enumerate(pattern_labels):
+            grouped_labels[val].append(labels[i])
+        output_labels = defaultdict(str)
+        for key in grouped_labels.keys():
+            output_labels[key] = f"Mean ({', '.join(grouped_labels[key])})" if len(grouped_labels[key]) > 1 else \
+            grouped_labels[key][0]
+        return output_labels
 
     @staticmethod
-    def visualize_many(plt_ax, patterns: List['UnimodalityPattern'], labels: List[str], title: str = None) -> None:
-        """
-        Visualize multiple unimodality patterns on a single plot.
-
-        :param plt_ax: Matplotlib axes to plot on
-        :param patterns: List of UnimodalityPattern objects
-        :param labels: List of labels for each pattern (e.g. data scope descriptions)
-        :param title: Optional custom title for the plot
-        """
-        # Define a color cycle for lines
-        colors = plt.cm.tab10.colors
-
-        # Prepare patterns with consistent numeric positions
+    def prepare_patterns(patterns: List['PatternInterface'], labels: List[str]) \
+            -> tuple[dict, List[int], List[pd.Series] | None, List[str]]:
         index_to_position, sorted_indices = PatternInterface.prepare_patterns_for_visualization(patterns)
-        grouped = False
 
         if len(patterns) > 3:
             pattern_groupings, pattern_labels = PatternInterface.group_similar_together(patterns,
-                                                                        index_to_position,
-                                                                        num_groups=3)
-            # Collect the labels for each group, such that each group of patterns has an array
-            # containing all of the labels for the patterns in that group.
-            grouped_labels = defaultdict(list)
-            for i, val in enumerate(pattern_labels):
-                grouped_labels[val].append(labels[i])
+                                                                                        index_to_position,
+                                                                                        num_groups=3)
+            # Create the new labels for the grouped patterns
+            grouped_labels = PatternInterface.labels_to_grouped_labels(labels, pattern_labels)
+            # Compute the mean series for each group
             pattern_means = [PatternInterface.compute_mean_series(
                 group, index_to_position,
                 names=grouped_labels[i])
                 for i, group in enumerate(pattern_groupings)
             ]
-            patterns = [
-                UnimodalityPattern(source_series=mean_pattern,
-                                   type=patterns[0].type,
-                                      highlight_index=patterns[0].highlight_index,
-                                      value_name=patterns[0].value_name
-                                   )
-                for mean_pattern in pattern_means
-            ]
+            # Assign the labels this way to make sure their order matches the patterns
             labels = [
-                f"Mean ({mean_pattern.name})" for mean_pattern in pattern_means
+                grouped_labels[i] for i, _ in enumerate(pattern_means)
             ]
 
-        # Plot each pattern
+            return index_to_position, sorted_indices, pattern_means, labels
+
+        else:
+            return index_to_position, sorted_indices, None, labels
+
+    @staticmethod
+    # @abstractmethod
+    def create_title(common_patterns: List['PatternInterface'], common_patterns_labels: List[str],
+                     agg_func: str, commonness_threshold: float,
+                     gb_col: str,
+                     exception_patterns: List['PatternInterface'] = None,
+                     exception_patterns_labels: List[str] = None) -> str:
+        """
+        Create a title for the plot based on the common patterns and their labels.
+        :param common_patterns: List of common patterns
+        :param common_patterns_labels: Labels for the common patterns
+        :param agg_func: Name of the aggregation function used (e.g. 'mean', 'sum') when creating the series that lead to the pattern discovery.
+        :param commonness_threshold: Threshold for commonness (e.g. 0.5 for 50%) used when creating the MetaInsights.
+        :param gb_col: The column used for grouping the data when creating the series that lead to the pattern discovery.
+        :param exception_patterns: List of exception patterns, if any
+        :param exception_patterns_labels: Labels for the exception patterns, if any
+        :return: A string title for the plot
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    __name__ = "PatternInterface"
+
+
+class UnimodalityPattern(PatternInterface):
+    __name__ = "Unimodality pattern"
+
+    @staticmethod
+    def create_title(common_patterns: List['UnimodalityPattern'], common_patterns_labels: List[str],
+                     agg_func: str, commonness_threshold: float,
+                     gb_col: str,
+                     exception_patterns: List['UnimodalityPattern'] = None,
+                     exception_patterns_labels: List[str] = None) -> str:
+        title = ""
+        unimodality_type = common_patterns[0].type
+        common_index = common_patterns[0].highlight_index
+        value_name = common_patterns[0].value_name
+        # Create the title based on the common patterns
+        title += f"At-least {commonness_threshold * 100:.1f}% of {agg_func}({value_name}) grouped by {gb_col} have a unimodal {unimodality_type} at {common_index}"
+        # If there are exception patterns, add them to the title
+        if exception_patterns is not None:
+            title += ", with exceptions for: "
+            for exception_label in exception_patterns_labels:
+                title += f"{exception_label},"
+        # If there is a final ',' at the end of the title, remove it
+        if title.endswith(','):
+            title = title[:-1]
+        # Wrap the title to avoid it being too long
+        title = textwrap.fill(title, width=80, break_long_words=True, replace_whitespace=False)
+        return title
+
+    @staticmethod
+    def _visualize_many(plt_ax, patterns: List['UnimodalityPattern'],
+                        labels: List[str], colors, index_to_position,
+                        alpha: float = 0.7, marker_size: int = 8) -> None:
+        """
+        Internal method to visualize multiple unimodality patterns on a single plot.
+        :param plt_ax:
+        :param patterns:
+        :param labels:
+        :param colors:
+        :param index_to_position:
+        :return:
+        """
         for i, (pattern, label) in enumerate(zip(patterns, labels)):
             color = colors[i % len(colors)]
 
@@ -249,17 +311,67 @@ class UnimodalityPattern(PatternInterface):
             values = pattern.source_series.values
 
             # Plot the series with a unique color
-            plt_ax.plot(x_positions, values, color=color, alpha=0.7, label=label)
+            plt_ax.plot(x_positions, values, color=color, alpha=alpha, label=label)
 
             # Highlight the peak or valley with a marker
             if pattern.type.lower() == 'peak' and pattern.highlight_index in pattern.source_series.index:
                 highlight_pos = index_to_position[pattern.highlight_index]
                 plt_ax.plot(highlight_pos, pattern.source_series.loc[pattern.highlight_index],
-                            'o', color=color, markersize=8, markeredgecolor='black')
+                            'o', color=color, markersize=marker_size, markeredgecolor='black')
             elif pattern.type.lower() == 'valley' and pattern.highlight_index in pattern.source_series.index:
                 highlight_pos = index_to_position[pattern.highlight_index]
                 plt_ax.plot(highlight_pos, pattern.source_series.loc[pattern.highlight_index],
-                            'v', color=color, markersize=8, markeredgecolor='black')
+                            'v', color=color, markersize=marker_size, markeredgecolor='black')
+
+    @staticmethod
+    def visualize_many(plt_ax, patterns: List['UnimodalityPattern'],
+                       labels: List[str],
+                       gb_col: str,
+                       commonness_threshold,
+                       agg_func,
+                       exception_patterns: List['UnimodalityPattern'] = None,
+                       exception_labels: List[str] = None) -> None:
+        """
+        Visualize multiple unimodality patterns on a single plot.
+
+        :param plt_ax: Matplotlib axes to plot on
+        :param patterns: List of UnimodalityPattern objects
+        :param labels: List of labels for each pattern (e.g. data scope descriptions)
+        :param agg_func: Name of the aggregation function used (e.g. 'mean', 'sum') when creating the series that lead to the pattern discovery.
+        :param gb_col: The column used for grouping the data when creating the series that lead to the pattern discovery.
+        :param commonness_threshold: Threshold for commonness (e.g. 0.5 for 50%) used when creating the MetaInsights.
+        :param exception_patterns: Patterns that are of the same type as the common patterns, but are exceptions to
+        those common patterns. Should be greatly highlighted in the plot if not None.
+        :param exception_labels: Labels for the exception patterns, if exception_patterns is not None.
+        """
+        # Define a color cycle for lines
+        colors = ['gray'] * len(patterns)  # Default color for common patterns
+
+        # Prepare patterns with consistent numeric positions
+        index_to_position, sorted_indices, pattern_means, labels = PatternInterface.prepare_patterns(patterns, labels)
+
+        if pattern_means is not None:
+            patterns = [
+                UnimodalityPattern(source_series=mean_pattern,
+                                   type=patterns[0].type,
+                                   highlight_index=patterns[0].highlight_index,
+                                   value_name=patterns[0].value_name
+                                   )
+                for mean_pattern in pattern_means
+            ]
+
+        # Plot each pattern
+        UnimodalityPattern._visualize_many(plt_ax, patterns, labels, colors,
+                                           index_to_position, alpha=0.4)
+
+        # If there are exception patterns, plot them too, and make sure they are highlighted
+        if exception_patterns is not None:
+            highlighting_colors = ['red'] * len(exception_patterns)  # Default color for exception patterns
+            # Plot exception patterns with a different style
+            UnimodalityPattern._visualize_many(
+                plt_ax, exception_patterns, exception_labels, highlighting_colors,
+                index_to_position, alpha=1.0, marker_size=12
+            )
 
         # Set x-ticks to show original index values
         if sorted_indices:
@@ -268,8 +380,16 @@ class UnimodalityPattern(PatternInterface):
         # Set labels and title
         plt_ax.set_xlabel(patterns[0].index_name if patterns else 'Index')
         plt_ax.set_ylabel(patterns[0].value_name if patterns else 'Value')
-        plt_ax.set_title(
-            f"Multiple {patterns[0].type if patterns else 'Unimodality'} Patterns" if title is None else title)
+        title = UnimodalityPattern.create_title(
+            common_patterns=patterns,
+            common_patterns_labels=labels,
+            agg_func=agg_func,
+            commonness_threshold=commonness_threshold,
+            gb_col=gb_col,
+            exception_patterns=exception_patterns,
+            exception_patterns_labels=exception_labels
+        )
+        plt_ax.set_title(title)
 
         # Add legend
         plt_ax.legend()
@@ -280,7 +400,8 @@ class UnimodalityPattern(PatternInterface):
         # Ensure bottom margin for x-labels
         plt_ax.figure.subplots_adjust(bottom=0.15)
 
-    def __init__(self, source_series: pd.Series, type: Literal['Peak', 'Valley'], highlight_index, value_name: str=None):
+    def __init__(self, source_series: pd.Series, type: Literal['Peak', 'Valley'], highlight_index,
+                 value_name: str = None):
         """
         Initialize the UnimodalityPattern with the provided parameters.
 
@@ -300,12 +421,11 @@ class UnimodalityPattern(PatternInterface):
         Visualize the unimodality pattern.
         :return:
         """
-        self.visualize_many(plt_ax, [self], [self.value_name], title=None)
+        self.visualize_many(plt_ax, [self], [self.value_name])
         if title is not None:
             plt_ax.set_title(title)
         else:
             plt_ax.set_title(f"{self.type} at {self.highlight_index} in {self.value_name}")
-
 
     def __eq__(self, other) -> bool:
         """
@@ -318,9 +438,8 @@ class UnimodalityPattern(PatternInterface):
             return False
         if not type(self.highlight_index) == type(other.highlight_index):
             return False
-        return  (self.type == other.type and
+        return (self.type == other.type and
                 self.highlight_index == other.highlight_index)
-
 
     def __repr__(self) -> str:
         """
@@ -347,13 +466,16 @@ class UnimodalityPattern(PatternInterface):
         return self.hash
 
 
-
 class TrendPattern(PatternInterface):
-
     __name__ = "Trend pattern"
 
     @staticmethod
-    def visualize_many(plt_ax, patterns: List['TrendPattern'], labels: List[str], title: str = None,
+    def visualize_many(plt_ax, patterns: List['TrendPattern'], labels: List[str],
+                       gb_col: str,
+                       commonness_threshold,
+                       agg_func,
+                       exception_patterns: List['UnimodalityPattern'] = None,
+                       exception_labels: List[str] = None,
                        show_data: bool = True, alpha_data: float = 0.5) -> None:
         """
         Visualize multiple trend patterns on a single plot.
@@ -422,6 +544,7 @@ class TrendPattern(PatternInterface):
             plt_ax.set_ylabel(patterns[0].value_name if patterns[0].value_name else 'Value')
 
         default_title = f"Multiple Trend Patterns"
+        title = ""
         plt_ax.set_title(title if title is not None else default_title)
 
         # Rotate x-axis tick labels
@@ -454,11 +577,12 @@ class TrendPattern(PatternInterface):
         :param plt_ax:
         :return:
         """
-        self.visualize_many(plt_ax, [self], [self.value_name], title=None)
+        self.visualize_many(plt_ax, [self], [self.value_name])
         if title is not None:
             plt_ax.set_title(title)
         else:
-            plt_ax.set_title(f"{self.type} trend in {self.value_name} with slope {self.slope:.2f} and intercept {self.intercept:.2f}")
+            plt_ax.set_title(
+                f"{self.type} trend in {self.value_name} with slope {self.slope:.2f} and intercept {self.intercept:.2f}")
 
     def __eq__(self, other) -> bool:
         """
@@ -471,7 +595,6 @@ class TrendPattern(PatternInterface):
             return False
         # We do not compare the slope and intercept - we only care about the type of trend
         return self.type == other.type
-
 
     def __repr__(self) -> str:
         """
@@ -499,11 +622,15 @@ class TrendPattern(PatternInterface):
 
 
 class OutlierPattern(PatternInterface):
-
     __name__ = "Outlier pattern"
 
     @staticmethod
-    def visualize_many(plt_ax, patterns: List['OutlierPattern'], labels: List[str], title: str = None,
+    def visualize_many(plt_ax, patterns: List['OutlierPattern'], labels: List[str],
+                       gb_col: str,
+                       commonness_threshold,
+                       agg_func,
+                       exception_patterns: List['UnimodalityPattern'] = None,
+                       exception_labels: List[str] = None,
                        show_regular: bool = True, alpha_regular: float = 0.5, alpha_outliers: float = 0.9) -> None:
         """
         Visualize multiple outlier patterns on a single plot.
@@ -574,6 +701,7 @@ class OutlierPattern(PatternInterface):
             plt_ax.set_xlabel(patterns[0].source_series.index.name if patterns[0].source_series.index.name else 'Index')
             plt_ax.set_ylabel(patterns[0].value_name if patterns[0].value_name else 'Value')
 
+        title = ""
         plt_ax.set_title(title if title is not None else "Multiple Outlier Patterns")
 
         # Setup legend
@@ -607,12 +735,11 @@ class OutlierPattern(PatternInterface):
         :param plt_ax:
         :return:
         """
-        self.visualize_many(plt_ax, [self], [self.value_name], title=None)
+        self.visualize_many(plt_ax, [self], [self.value_name])
         if title is not None:
             plt_ax.set_title(title)
         else:
             plt_ax.set_title(f"Outliers in {self.value_name} at {self.outlier_indexes.tolist()}")
-
 
     def __eq__(self, other):
         """
@@ -627,7 +754,7 @@ class OutlierPattern(PatternInterface):
         if not type(self.outlier_indexes) == type(other.outlier_indexes):
             return False
         return self.outlier_indexes.isin(other.outlier_indexes).all() or \
-                other.outlier_indexes.isin(self.outlier_indexes).all()
+            other.outlier_indexes.isin(self.outlier_indexes).all()
 
     def __repr__(self) -> str:
         """
@@ -655,11 +782,15 @@ class OutlierPattern(PatternInterface):
 
 
 class CyclePattern(PatternInterface):
-
     __name__ = "Cycle pattern"
 
     @staticmethod
-    def visualize_many(plt_ax, patterns: List['CyclePattern'], labels: List[str], title: str = None,
+    def visualize_many(plt_ax, patterns: List['CyclePattern'], labels: List[str],
+                       gb_col: str,
+                       commonness_threshold,
+                       agg_func,
+                       exception_patterns: List['UnimodalityPattern'] = None,
+                       exception_labels: List[str] = None,
                        alpha_cycles: float = 0.3, line_alpha: float = 0.8) -> None:
         """
         Visualize multiple cycle patterns on a single plot with common cycles highlighted.
@@ -792,6 +923,7 @@ class CyclePattern(PatternInterface):
             plt_ax.set_ylabel(patterns[0].value_name if patterns[0].value_name else 'Value')
 
         default_title = "Multiple Cycle Patterns"
+        title = ""
         plt_ax.set_title(title if title is not None else default_title)
 
         # Add legend
@@ -821,7 +953,7 @@ class CyclePattern(PatternInterface):
         :param plt_ax:
         :return:
         """
-        self.visualize_many(plt_ax, [self], [self.value_name], title=None, alpha_cycles=0.5, line_alpha=0.8)
+        self.visualize_many(plt_ax, [self], [self.value_name], alpha_cycles=0.5, line_alpha=0.8)
         if title is not None:
             plt_ax.set_title(title)
         else:

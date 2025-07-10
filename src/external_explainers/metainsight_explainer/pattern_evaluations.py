@@ -7,9 +7,8 @@ import numpy as np
 from diptest import diptest
 from scipy.stats import zscore
 from external_explainers.metainsight_explainer.patterns import UnimodalityPattern, TrendPattern, OutlierPattern, \
-    CyclePattern, PatternInterface
+    PatternBase
 import pymannkendall as mk
-from cydets.algorithm import detect_cycles
 from singleton_decorator import singleton
 from external_explainers.metainsight_explainer.cache import Cache
 
@@ -23,7 +22,6 @@ class PatternType(Enum):
     UNIMODALITY = 2
     TREND = 3
     OUTLIER = 4
-    CYCLE = 5
 
 
 @singleton
@@ -36,8 +34,6 @@ class PatternEvaluator:
         self.cache = Cache()
         self.OUTLIER_ZSCORE_THRESHOLD = 2.0  # Z-score threshold for outlier detection
         self.TREND_SLOPE_THRESHOLD = 0.01  # Minimum absolute slope for trend detection
-
-
 
     def _is_time_series(self, series: pd.Series) -> bool:
         """
@@ -55,7 +51,6 @@ class PatternEvaluator:
             return np.all(np.diff(series.index) > 0)
         else:
             return False
-
 
     def unimodality(self, series: pd.Series) -> (bool, List[UnimodalityPattern] | None):
         """
@@ -87,8 +82,10 @@ class PatternEvaluator:
         max_value_index = peaks.index[0] if len(peaks) == 1 else None
         min_value_index = valleys.index[0] if len(valleys) == 1 else None
         # If both are at the edges, this is more likely a trend than a unimodal pattern
-        if (max_value_index is not None and (max_value_index == series.index[0] or max_value_index == series.index[-1])) and \
-                (min_value_index is not None and (min_value_index == series.index[0] or min_value_index == series.index[-1])):
+        if (max_value_index is not None and (
+                max_value_index == series.index[0] or max_value_index == series.index[-1])) and \
+                (min_value_index is not None and (
+                        min_value_index == series.index[0] or min_value_index == series.index[-1])):
             return False, None
         to_return = []
         # If both a peak and a valley exists, we can return both. If none exists, we return None.
@@ -99,8 +96,6 @@ class PatternEvaluator:
         if len(to_return) == 0:
             return False, None
         return True, frozenset(to_return)
-
-
 
     def trend(self, series: pd.Series) -> (bool, TrendPattern | None):
         """
@@ -127,8 +122,6 @@ class PatternEvaluator:
             return True, TrendPattern(series, type=mk_result.trend,
                                       slope=mk_result.slope, intercept=mk_result.intercept, value_name=series.name)
 
-
-
     def outlier(self, series: pd.Series) -> (bool, OutlierPattern):
         """
         Evaluates if a series contains significant outliers.
@@ -152,52 +145,7 @@ class PatternEvaluator:
                                     outlier_values=outlier_values, value_name=series.name
                                     )
 
-
-    def cycle(self, series: pd.Series) -> (bool, CyclePattern):
-        """
-        Evaluates if a series exhibits cyclical patterns.
-        Uses the Cydets library to detect cycles.
-        :param series: The series to evaluate.
-        :return: Tuple (is_cyclical, CyclePattern or None)
-        """
-        if len(series) < 2:
-            return False, None
-
-        # Ensure the series has enough variability to detect cycles
-        if series.std() < 1e-10 or (series.max() - series.min()) < 1e-8:
-            return False, None
-
-        # Quick pre-filtering using autocorrelation (much faster than full detection)
-        # Suppress the specific divide-by-zero warnings during autocorrelation calculation
-        with np.errstate(divide='ignore', invalid='ignore'):
-            # Quick pre-filtering using autocorrelation
-            if len(series) >= 20:
-                # Handle possible NaN results from autocorrelation
-                try:
-                    autocorr = pd.Series(series.values).autocorr(lag=len(series) // 4)
-                    if pd.isna(autocorr) or abs(autocorr) < 0.3:  # Check for NaN and low correlation
-                        return False, None
-                except (ValueError, ZeroDivisionError):
-                    return False, None
-
-        # Check if the series is a time series
-        if not self._is_time_series(series):
-            return False, None
-
-        # Detect cycles using Cydets
-        try:
-            cycle_info = detect_cycles(series)
-            if cycle_info is not None and len(cycle_info) > 0:
-                return True, CyclePattern(series, cycle_info, value_name=series.name)
-            return False, None
-        # For some godforsaken reason, Cydets throws a ValueError when it fails to detect cycles, instead of
-        # returning None like it should. And so, we have this incredibly silly try/except block.
-        except ValueError:
-            return False, None
-
-
-
-    def __call__(self, series: pd.Series, pattern_type: PatternType) -> (bool, frozenset[PatternInterface] | None):
+    def __call__(self, series: pd.Series, pattern_type: PatternType) -> (bool, frozenset[PatternBase] | None):
         """
         Calls the appropriate pattern evaluation method based on the pattern type.
         :param series: The series to evaluate.
@@ -221,8 +169,6 @@ class PatternEvaluator:
             result = self.trend(series)
         elif pattern_type == PatternType.OUTLIER:
             result = self.outlier(series)
-        elif pattern_type == PatternType.CYCLE:
-            result = self.cycle(series)
         else:
             raise ValueError(f"Unsupported pattern type: {pattern_type}")
         is_valid = result[0] if isinstance(result, tuple) else False

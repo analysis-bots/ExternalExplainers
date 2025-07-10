@@ -14,8 +14,8 @@ class UnimodalityPattern(PatternWithBarPlot):
     @staticmethod
     def _visualize_many(plt_ax, patterns: List['UnimodalityPattern'],
                         labels: List[str], colors, index_to_position,
-                        total_series: int,  # NEW: The total number of bars per category group
-                        series_start_index: int,  # NEW: The starting index for this batch of patterns
+                        total_series: int,
+                        series_start_index: int,
                         alpha: float = 0.7, marker_size: int = 8) -> tuple[bool, bool]:
         """
         Internal method to visualize multiple unimodality patterns as a grouped bar plot.
@@ -29,12 +29,10 @@ class UnimodalityPattern(PatternWithBarPlot):
         :param series_start_index: The starting index for this batch of patterns (for color/position offset).
         :param alpha: Opacity for the bars.
         :param marker_size: Size of the highlight marker.
-        :returns: A tuple containing two booleans indicating if any valley or peak was drawn (in that order).
+        :returns: A tuple containing two booleans indicating if any peak or valley was drawn (in that order).
         """
         # 1. Calculate the width for each individual bar
         # We use 0.8 to leave some padding between the groups on the x-axis.
-        total_group_width = 0.8
-        bar_width = total_group_width / total_series
 
         valley_drawn, peak_drawn = False, False
 
@@ -56,15 +54,15 @@ class UnimodalityPattern(PatternWithBarPlot):
 
                 if pattern.type.lower() == 'peak':
                     marker_symbol = 'o'
-                    peak_drawn = True  # NEW: Set flag to True
+                    peak_drawn = True
                 else:  # Assumes 'valley'
                     marker_symbol = 'v'
-                    valley_drawn = True  # NEW: Set flag to True
+                    valley_drawn = True
 
                 plt_ax.plot(highlight_pos, pattern.source_series.loc[pattern.highlight_index],
                             marker_symbol, color='black', markersize=marker_size, zorder=3)  # Use black for visibility
 
-        return valley_drawn, peak_drawn
+        return peak_drawn, valley_drawn
 
     @staticmethod
     def visualize_many(plt_ax, patterns: List['UnimodalityPattern'],
@@ -73,7 +71,7 @@ class UnimodalityPattern(PatternWithBarPlot):
                        commonness_threshold,
                        agg_func,
                        exception_patterns: List['UnimodalityPattern'] = None,
-                       exception_labels: List[str] = None) -> None:
+                       exception_labels: List[str] = None, plot_num: int = None) -> None:
         """
         Visualize multiple unimodality patterns on a single plot.
 
@@ -98,7 +96,8 @@ class UnimodalityPattern(PatternWithBarPlot):
 
         # Prepare patterns with consistent numeric positions
         index_to_position, sorted_indices, pattern_means, labels = PatternWithBarPlot.prepare_patterns(patterns, labels,
-                                                                                                     highlight_indexes, num_to_keep=8)
+                                                                                                     highlight_indexes, num_to_keep=8,
+                                                                                                       exception_patterns=exception_patterns)
 
         if pattern_means is not None:
             patterns = [
@@ -134,8 +133,8 @@ class UnimodalityPattern(PatternWithBarPlot):
                 total_series=total_series
             )
 
-        peak_drawn = peak_drawn or common_valley_drawn or exception_peak_drawn
-        valley_drawn = valley_drawn or common_peak_drawn or exception_valley_drawn
+        peak_drawn = common_peak_drawn or exception_peak_drawn
+        valley_drawn = common_valley_drawn or exception_valley_drawn
 
         # Set x-ticks to show original index values
         if sorted_indices:
@@ -144,17 +143,23 @@ class UnimodalityPattern(PatternWithBarPlot):
         # Set labels and title
         plt_ax.set_xlabel(patterns[0].index_name if patterns else 'Index')
         plt_ax.set_ylabel(patterns[0].value_name if patterns else 'Value')
+
+        common_description, exceptions_description = patterns[0].get_title_description()
+
         title = PatternWithBarPlot.create_title(
             common_patterns=patterns,
             common_patterns_labels=labels,
             agg_func=agg_func,
             commonness_threshold=commonness_threshold,
             gb_col=gb_col,
-            highlight_indexes=patterns[0].highlight_index,
-            pattern_prefix=f"a unimodal {patterns[0].type.lower()}",
+            highlight_indexes=patterns[0].get_highlight_indexes(),
+            common_pattern_description=common_description,
             exception_patterns=exception_patterns,
-            exception_patterns_labels=exception_labels
+            exception_patterns_labels=exception_labels,
+            exception_pattern_description=exceptions_description
         )
+        if plot_num is not None:
+            title = f"[{plot_num}] {title}"
         plt_ax.set_title(title)
 
         # Get the handles and labels from the bars first
@@ -177,9 +182,6 @@ class UnimodalityPattern(PatternWithBarPlot):
 
         # Rotate x-axis tick labels
         plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=16)
-
-        # Ensure bottom margin for x-labels
-        plt_ax.figure.subplots_adjust(bottom=0.15)
 
     def __init__(self, source_series: pd.Series, type: Literal['Peak', 'Valley'], highlight_index,
                  value_name: str = None):
@@ -245,3 +247,15 @@ class UnimodalityPattern(PatternWithBarPlot):
             return self.hash
         self.hash = hash(f"UnimodalityPattern(type={self.type}, highlight_index={self.highlight_index})")
         return self.hash
+
+
+    def get_highlight_indexes(self) -> List[int | str] | str | int:
+        """
+        Get the highlight indexes for the pattern.
+        :return: A list containing the highlight index.
+        """
+        return self.highlight_index if self.highlight_index is not None else []
+
+
+    def get_title_description(self) -> tuple[str, str]:
+        return f"a uni-modal {self.type.lower()}", "different uni-modalities"

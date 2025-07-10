@@ -5,7 +5,7 @@ from typing import Dict, List, Tuple
 
 from external_explainers.metainsight_explainer.data_scope import DataScope, HomogenousDataScope
 from external_explainers.metainsight_explainer.pattern_evaluations import PatternEvaluator, PatternType
-from external_explainers.metainsight_explainer.patterns import PatternInterface
+from external_explainers.metainsight_explainer.patterns import PatternBase
 from external_explainers.metainsight_explainer.cache import Cache
 
 
@@ -16,7 +16,7 @@ class BasicDataPattern:
     """
     cache = Cache()
 
-    def __init__(self, data_scope: DataScope, pattern_type: PatternType, highlight: PatternInterface | None):
+    def __init__(self, data_scope: DataScope, pattern_type: PatternType, highlight: PatternBase | None):
         """
         Initialize the BasicDataPattern with the provided data scope, type and highlight.
 

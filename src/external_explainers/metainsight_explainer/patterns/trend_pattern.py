@@ -3,63 +3,18 @@ from typing import List, Literal
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
-from matplotlib.lines import Line2D
 
-from external_explainers.metainsight_explainer.patterns.pattern_base_classes import PatternWithBarPlot
+from external_explainers.metainsight_explainer.patterns.pattern_base_classes import PatternBase
 from external_explainers.metainsight_explainer.utils import generate_color_shades
-from external_explainers.metainsight_explainer.patterns.pattern_base_classes import PatternInterface
 
-class TrendPattern(PatternInterface):
+class TrendPattern(PatternBase):
     __name__ = "Trend pattern"
 
     @staticmethod
-    def visualize_many(plt_ax, patterns: List['TrendPattern'], labels: List[str],
-                       gb_col: str,
-                       commonness_threshold,
-                       agg_func,
-                       exception_patterns: List['UnimodalityPattern'] = None,
-                       exception_labels: List[str] = None,
-                       show_data: bool = True, alpha_data: float = 0.5) -> None:
-        """
-        Visualize multiple trend patterns on a single plot.
-
-        :param plt_ax: Matplotlib axes to plot on
-        :param patterns: List of TrendPattern objects
-        :param labels: List of labels for each pattern
-        :param title: Optional custom title for the plot
-        :param show_data: Whether to show the raw data points (can be set to False if too cluttered)
-        :param alpha_data: Opacity of the raw data (lower value reduces visual clutter)
-        """
-        # Define a color cycle for lines
-        colors = plt.cm.tab10.colors
-
-        # Define line styles for additional differentiation.
-        # Taken from the matplotlib docs.
-        line_styles = [
-            ('loosely dotted', (0, (1, 10))),
-            ('dotted', (0, (1, 5))),
-            ('densely dotted', (0, (1, 1))),
-            ('long dash with offset', (5, (10, 3))),
-            ('loosely dashed', (0, (5, 10))),
-            ('dashed', (0, (5, 5))),
-            ('densely dashed', (0, (5, 1))),
-            ('loosely dashdotted', (0, (3, 10, 1, 10))),
-            ('dashdotted', (0, (3, 5, 1, 5))),
-            ('densely dashdotted', (0, (3, 1, 1, 1))),
-            ('dashdotdotted', (0, (3, 5, 1, 5, 1, 5))),
-            ('loosely dashdotdotted', (0, (3, 10, 1, 10, 1, 10))),
-            ('densely dashdotdotted', (0, (3, 1, 1, 1, 1, 1)))]
-
-        # Prepare patterns with consistent numeric positions
-        index_to_position, sorted_indices = PatternInterface.prepare_patterns_for_visualization(patterns)
-
+    def _visualize_many(plt_ax, colors, line_styles, patterns, labels, sorted_indices):
         for i, (pattern, label) in enumerate(zip(patterns, labels)):
             color = colors[i % len(colors)]
             line_style = line_styles[i % len(line_styles)][1]
-
-            # Map series to numeric positions for plotting
-            x_positions = [index_to_position[idx] for idx in pattern.source_series.index]
-            values = pattern.source_series.values
 
             # Plot the trend line using numeric positions
             trend_label = f"{label}"
@@ -67,13 +22,46 @@ class TrendPattern(PatternInterface):
             plt_ax.plot(x_range, pattern.slope * x_range + pattern.intercept,
                         linestyle=line_style, color=color, linewidth=2, label=trend_label + " (trend line)")
 
+    @staticmethod
+    def visualize_many(plt_ax, patterns: List['TrendPattern'], labels: List[str],
+                       gb_col: str,
+                       commonness_threshold,
+                       agg_func,
+                       exception_patterns: List['TrendPattern'] = None,
+                       exception_labels: List[str] = None,
+                       plot_num: int | None = None, alpha_data: float =0.5, show_data: bool = True) -> None:
+        # Define a color cycle for lines
+        colors = plt.cm.tab10.colors
+
+        # Define line styles for additional differentiation.
+        # Taken from the matplotlib docs.
+        line_styles = [
+            ('densely dotted', (0, (1, 1))),
+            ('long dash with offset', (5, (10, 3))),
+            ('densely dashed', (0, (5, 1))),
+            ('densely dashdotted', (0, (3, 1, 1, 1))),
+            ('densely dashdotdotted', (0, (3, 1, 1, 1, 1, 1)))]
+
+        # Prepare patterns with consistent numeric positions
+        all_patterns = patterns + (exception_patterns if exception_patterns else [])
+        index_to_position, sorted_indices = PatternBase.prepare_patterns_for_visualization(all_patterns)
+
+        TrendPattern._visualize_many(
+            plt_ax=plt_ax,
+            colors=colors,
+            line_styles=line_styles,
+            patterns=patterns,
+            labels=labels,
+            sorted_indices=sorted_indices
+        )
+
         # Set x-ticks to show original index values
         if sorted_indices:
-            PatternInterface.handle_sorted_indices(plt_ax, sorted_indices)
+            PatternBase.handle_sorted_indices(plt_ax, sorted_indices)
 
         # Compute the mean value across the data as a whole, and visualize that line, if show_data is True
         if show_data:
-            overall_mean_series = PatternInterface.compute_mean_series(patterns, index_to_position)
+            overall_mean_series = PatternBase.compute_mean_series(patterns, index_to_position)
             mean_x_positions = [index_to_position.get(idx) for idx in overall_mean_series.index if
                                 idx in index_to_position]
             mean_values = [overall_mean_series.loc[idx] for idx in overall_mean_series.index if
@@ -81,23 +69,45 @@ class TrendPattern(PatternInterface):
             plt_ax.plot(mean_x_positions, mean_values, color='gray', alpha=alpha_data, linewidth=5,
                         label='Mean Over All Data')
 
+        # If exception patterns are provided, visualize them
+        if exception_patterns:
+            exception_colors = generate_color_shades('Reds', len(exception_patterns))
+            TrendPattern._visualize_many(
+                plt_ax=plt_ax,
+                colors=exception_colors,
+                line_styles=line_styles,
+                patterns=exception_patterns,
+                labels=exception_labels,
+                sorted_indices=sorted_indices
+            )
+
+
         # Set labels and title
         if patterns:
             plt_ax.set_xlabel(patterns[0].source_series.index.name if patterns[0].source_series.index.name else 'Index')
             plt_ax.set_ylabel(patterns[0].value_name if patterns[0].value_name else 'Value')
 
-        default_title = f"Multiple Trend Patterns"
-        title = ""
-        plt_ax.set_title(title if title is not None else default_title)
+        common_description, exceptions_description = patterns[0].get_title_description()
+
+        title = PatternBase.create_title(
+            common_patterns=patterns,
+            common_patterns_labels=labels,
+            agg_func=agg_func,
+            commonness_threshold=commonness_threshold,
+            gb_col=gb_col,
+            highlight_indexes=patterns[0].get_highlight_indexes(),
+            common_pattern_description=common_description,
+            exception_patterns=exception_patterns,
+            exception_patterns_labels=exception_labels,
+            exception_pattern_description=exceptions_description
+        )
+        plt_ax.set_title(title)
 
         # Rotate x-axis tick labels
         plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=16)
 
         # Add legend
         plt_ax.legend()
-
-        # Ensure bottom margin for x-labels
-        plt_ax.figure.subplots_adjust(bottom=0.15)
 
     def __init__(self, source_series: pd.Series, type: Literal['Increasing', 'Decreasing'],
                  slope: float, intercept: float = 0, value_name: str = None):
@@ -162,3 +172,9 @@ class TrendPattern(PatternInterface):
             return self.hash
         self.hash = hash(f"TrendPattern(type={self.type})")
         return self.hash
+
+    def get_highlight_indexes(self) -> List[int | str] | None:
+        return None
+
+    def get_title_description(self) -> tuple[str, str]:
+        return f"a(n) {self.type.lower()} trend", "a different trend"

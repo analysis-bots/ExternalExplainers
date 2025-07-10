@@ -6,7 +6,7 @@ import numpy as np
 from typing import List, Any
 from sklearn.cluster import KMeans
 
-class PatternInterface(ABC):
+class PatternBase(ABC):
     """
     Abstract base class for defining patterns.
     """
@@ -99,11 +99,11 @@ class PatternInterface(ABC):
 
     @staticmethod
     @abstractmethod
-    def visualize_many(plt_ax, patterns: List['PatternInterface'], labels: List[str],
+    def visualize_many(plt_ax, patterns: List['PatternBase'], labels: List[str],
                        agg_func: str, commonness_threshold: float,
                        gb_col: str,
-                       exception_patterns: List['PatternInterface'] = None,
-                       exception_labels: List[str] = None) -> None:
+                       exception_patterns: List['PatternBase'] = None,
+                       exception_labels: List[str] = None, plot_num: int = None) -> None:
         """
         Visualize many patterns of the same type on the same plot.
         :param plt_ax: The matplotlib axes to plot on
@@ -115,11 +115,12 @@ class PatternInterface(ABC):
         :param exception_patterns: Patterns that are of the same type as the common patterns, but are exceptions to
         those common patterns. Should be greatly highlighted in the plot if not None.
         :param exception_labels: Labels for the exception patterns, if exception_patterns is not None.
+        :param plot_num: Number of the current plot. If provided, will be added to the title for clarity.
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
     @staticmethod
-    def compute_mean_series(patterns: List['PatternInterface'],
+    def compute_mean_series(patterns: List['PatternBase'],
                             index_to_position: dict, names: list[str] | str | None = None) -> pd.Series:
         """
         Compute the mean series across multiple patterns.
@@ -158,8 +159,8 @@ class PatternInterface(ABC):
         return overall_mean_series
 
     @staticmethod
-    def group_similar_together(patterns: List['PatternInterface'], index_to_position, num_groups: int = 3) \
-            -> tuple[List[List['PatternInterface']], List[int]]:
+    def group_similar_together(patterns: List['PatternBase'], index_to_position, num_groups: int = 3) \
+            -> tuple[List[List['PatternBase']], List[int]]:
         """
         Group similar patterns together using KMeans clustering.
         :param patterns: List of PatternInterface objects to group
@@ -211,8 +212,9 @@ class PatternInterface(ABC):
         return output_labels
 
     @staticmethod
-    def prepare_patterns(patterns: List['PatternInterface'],
-                         labels: List[str], highlight_indexes: list, num_to_keep = 10) \
+    def prepare_patterns(patterns: List['PatternBase'],
+                         labels: List[str], highlight_indexes: list, num_to_keep = 10,
+                         exception_patterns: List['PatternBase'] = None) \
             -> tuple[dict, List[int], List[pd.Series] | None, List[str]]:
         """
         Prepares patterns for visualization by creating a consistent numeric position mapping,
@@ -223,22 +225,23 @@ class PatternInterface(ABC):
         :param num_to_keep: The maximum number of indices to keep in the result.
         :return:
         """
-        index_to_position, sorted_indices = PatternInterface.prepare_patterns_for_visualization(patterns)
-        index_to_position = PatternInterface.prune_index(
+        all_patterns = patterns + (exception_patterns if exception_patterns is not None else [])
+        index_to_position, sorted_indices = PatternBase.prepare_patterns_for_visualization(all_patterns)
+        index_to_position = PatternBase.prune_index(
             index_to_position,
             highlight_indexes=highlight_indexes,
             num_to_keep=num_to_keep  # Keep only the most relevant indices
         )
-        sorted_indices = [idx for idx in sorted_indices if idx in index_to_position.keys()]
+        sorted_indices = list(index_to_position.keys())
 
         if len(patterns) > 3:
-            pattern_groupings, pattern_labels = PatternInterface.group_similar_together(patterns,
-                                                                                        index_to_position,
-                                                                                        num_groups=3)
+            pattern_groupings, pattern_labels = PatternBase.group_similar_together(patterns,
+                                                                                   index_to_position,
+                                                                                   num_groups=3)
             # Create the new labels for the grouped patterns
-            grouped_labels = PatternInterface.labels_to_grouped_labels(labels, pattern_labels)
+            grouped_labels = PatternBase.labels_to_grouped_labels(labels, pattern_labels)
             # Compute the mean series for each group
-            pattern_means = [PatternInterface.compute_mean_series(
+            pattern_means = [PatternBase.compute_mean_series(
                 group, index_to_position,
                 names=grouped_labels[i])
                 for i, group in enumerate(pattern_groupings)
@@ -255,13 +258,15 @@ class PatternInterface(ABC):
 
     @staticmethod
     # @abstractmethod
-    def create_title(common_patterns: List['PatternInterface'], common_patterns_labels: List[str],
+    def create_title(common_patterns: List['PatternBase'], common_patterns_labels: List[str],
                      agg_func: str, commonness_threshold: float,
                      gb_col: str,
-                     pattern_prefix: str,
-                     highlight_indexes: List[int] | int,
-                     exception_patterns: List['PatternInterface'] = None,
-                     exception_patterns_labels: List[str] = None) -> str:
+                     common_pattern_description: str,
+                     highlight_indexes: List[int | str] | int | str | None,
+                     exception_patterns: List['PatternBase'] = None,
+                     exception_patterns_labels: List[str] = None,
+                     exception_pattern_description: str | None = None,
+                     ) -> str:
         """
         Create a title for the plot based on the common patterns and their labels.
         :param common_patterns: List of common patterns
@@ -269,26 +274,30 @@ class PatternInterface(ABC):
         :param agg_func: Name of the aggregation function used (e.g. 'mean', 'sum') when creating the series that lead to the pattern discovery.
         :param commonness_threshold: Threshold for commonness (e.g. 0.5 for 50%) used when creating the MetaInsights.
         :param gb_col: The column used for grouping the data when creating the series that lead to the pattern discovery.
-        :param pattern_prefix: A string prefix for the pattern description, e.g. "a unimodal peak" or "a cycle"
+        :param common_pattern_description: A string for the common pattern's description, e.g. "a unimodal peak".
         :param highlight_indexes: The indexes where the common pattern occurs, or a single index if there is only one.
+         Leave as None to leave it out of the title (useful for trend patterns, where the highlight indexes are not relevant).
         :param exception_patterns: List of exception patterns, if any
         :param exception_patterns_labels: Labels for the exception patterns, if any
+        :param exception_pattern_description: A string for the exception pattern's description, e.g. "different unimodaliies".
         :return: A string title for the plot
         """
         title = ""
         value_name = common_patterns[0].value_name
         # Create the title based on the common patterns
-        title += f"At-least {commonness_threshold * 100:.1f}% of {agg_func}({value_name}) grouped by {gb_col} have {pattern_prefix} at {highlight_indexes}"
+        title += f"At-least {commonness_threshold * 100:.1f}% of {agg_func}({value_name}) grouped by {gb_col} have {common_pattern_description}"
+        if highlight_indexes:
+            title += f" at {highlight_indexes}"
         # If there are exception patterns, add them to the title
         if exception_patterns is not None:
-            title += ", with exceptions for: "
+            title += f", with {exception_pattern_description} in "
             for exception_label in exception_patterns_labels:
                 title += f"{exception_label},"
         # If there is a final ',' at the end of the title, remove it
         if title.endswith(','):
             title = title[:-1]
         # Wrap the title to avoid it being too long
-        title = textwrap.fill(title, width=80, break_long_words=True, replace_whitespace=False)
+        title = textwrap.fill(title, width=60, break_long_words=True, replace_whitespace=False)
         return title
 
     @staticmethod
@@ -352,10 +361,28 @@ class PatternInterface(ABC):
         # Create the pruned dictionary
         return {idx: i for i, idx in enumerate(indices_to_keep)}
 
+
+    @abstractmethod
+    def get_highlight_indexes(self) -> List[int | str] | None | str | int:
+        """
+        Get the highlight indexes for the pattern.
+        :return: A list of highlight indexes, which are the indices of the source series, or None if the highlight
+        indexes are not applicable for this pattern type.
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    @abstractmethod
+    def get_title_description(self) -> tuple[str, str]:
+        """
+        Get a description of the pattern for use in the title.
+        :return: A tuple containing the common pattern description and the exception pattern description.
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+
     __name__ = "PatternInterface"
 
 
-class PatternWithBarPlot(PatternInterface, ABC):
+class PatternWithBarPlot(PatternBase, ABC):
     """
     Parent class for patterns that are visualized as bar plots.
     Contains the draw_bar method that handles the bar plotting logic.

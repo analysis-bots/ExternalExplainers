@@ -8,8 +8,6 @@ import textwrap
 
 import math
 
-import numpy as np
-
 from external_explainers.metainsight_explainer.data_pattern import HomogenousDataPattern
 from external_explainers.metainsight_explainer.data_pattern import BasicDataPattern
 from external_explainers.metainsight_explainer.pattern_evaluations import PatternType

@@ -2,10 +2,6 @@ from cmath import isnan
 from collections import defaultdict
 from typing import List, Dict
 
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
-import textwrap
-
 import math
 
 from external_explainers.metainsight_explainer.data_pattern import HomogenousDataPattern
@@ -57,7 +53,6 @@ class MetaInsight:
             self.hash += pattern.__hash__()
         return self.hash
 
-
     def __eq__(self, other):
         """
         Compares two MetaInsight objects for equality.
@@ -83,7 +78,6 @@ class MetaInsight:
 
         return all_equal
 
-
     def __str__(self):
         """
         :return: A string representation of the MetaInsight, describing its commonness set and exceptions.
@@ -101,11 +95,11 @@ class MetaInsight:
             highlight_indexes=self_highlight.get_highlight_indexes(),
             common_pattern_description=common_description,
             exception_pattern_description=exception_description,
-            exception_patterns=[pattern.highlight for pattern in highlight_change_exceptions] if highlight_change_exceptions else None,
+            exception_patterns=[pattern.highlight for pattern in
+                                highlight_change_exceptions] if highlight_change_exceptions else None,
             exception_patterns_labels=exception_labels if highlight_change_exceptions else None,
         )
         return title
-
 
     def _get_highlight_change_exceptions(self) -> tuple[List[BasicDataPattern], List[str]] | tuple[None, None]:
         """
@@ -120,66 +114,6 @@ class MetaInsight:
             return None, None
         exception_labels = self._create_labels(highlight_change_exceptions)
         return highlight_change_exceptions, exception_labels
-
-
-    def _write_exceptions_list_string(self, category: PatternType, patterns: List[BasicDataPattern], category_name: str) -> str:
-        """
-        Helper function to create a string representation of a list of exception patterns.
-        :param category: The category of the exceptions.
-        :param patterns: The list of BasicDataPattern objects in this category.
-        :param category_name: The name of the category.
-        :return: A string representation of the exceptions in this category.
-        """
-        if not patterns:
-            return ""
-        if category_name.lower() not in ["no pattern", "no-pattern", "none", "highlight-change", "highlight change"]:
-            # If the category is "No Pattern" or "Highlight Change", we don't need to write anything
-            exceptions = [pattern for pattern in patterns if pattern.pattern_type not in [PatternType.NONE, PatternType.OTHER]]
-        else:
-            exceptions = [pattern for pattern in patterns if pattern.pattern_type == category]
-        subspaces = [pattern.data_scope.subspace for pattern in exceptions]
-        subspace_dict = defaultdict(list)
-        for subspace in subspaces:
-            for key, val in subspace.items():
-                subspace_dict[key].append(val)
-        out_str = f"Exceptions in category '{category_name}' ({len(exceptions)}): ["
-        for key, val in subspace_dict.items():
-            out_str += f"{key} = {val}, "
-        out_str = out_str[:-2] + "]\n"
-        return out_str
-
-    def get_exceptions_string(self):
-        """
-        A string representation of the list of exception categories.
-        :return:
-        """
-        exceptions_string = ""
-        for category, patterns in self.exceptions.items():
-            if not patterns:
-                continue
-            # No-Pattern category: create an array of
-            if category.lower() == "no-pattern" or category.lower() == "none":
-                exceptions_string += self._write_exceptions_list_string(PatternType.NONE, patterns, "No Pattern")
-            if category.lower() == "highlight-change" or category.lower() == "highlight change":
-                # Doesn't matter which PatternType we use here, so long as it is not None or PatternType.OTHER.
-                exceptions_string += self._write_exceptions_list_string(PatternType.UNIMODALITY, patterns, "Same pattern, different highlight")
-            elif category.lower() == "type-change" or category.lower() == "type change":
-                exceptions_string += self._write_exceptions_list_string(PatternType.OTHER, patterns, "Pattern type change")
-        if not exceptions_string:
-            exceptions_string = "All values belong to a commonness set, no exceptions found."
-        return exceptions_string
-
-
-    def to_str_full(self):
-        """
-        :return: A full string representation of the MetaInsight, including commonness sets and exceptions.
-        """
-        ret_str = self.__str__()
-        if len(self.exceptions) > 0:
-            ret_str += f"Exceptions to this pattern were found:\n"
-        ret_str += self.get_exceptions_string()
-        return ret_str
-
 
     @staticmethod
     def categorize_exceptions(commonness_set: List[BasicDataPattern], exceptions):
@@ -204,7 +138,8 @@ class MetaInsight:
         return categorized
 
     @staticmethod
-    def create_meta_insight(hdp: HomogenousDataPattern, commonness_threshold=COMMONNESS_THRESHOLD) -> List['MetaInsight'] | None:
+    def create_meta_insight(hdp: HomogenousDataPattern, commonness_threshold=COMMONNESS_THRESHOLD) -> List[
+                                                                                                          'MetaInsight'] | None:
         """
         Evaluates the HDP and creates a MetaInsight object.
         :param hdp: A HomogenousDataPattern object.
@@ -367,7 +302,6 @@ class MetaInsight:
             return 0.0
         return min(self.score, other.score) * overlap_ratio
 
-
     def _create_labels(self, patterns: List[BasicDataPattern]) -> List[str]:
         """
         Create labels for the patterns in a commonness set.
@@ -392,14 +326,17 @@ class MetaInsight:
             labels.append(f"{subspace_str}")
         return labels
 
-    def visualize(self, plt_ax, plot_num: int | None = None) -> None:
+    def visualize(self, plt_ax, plot_num: int | None = None,
+                  max_labels: int = 8,
+                  max_common_categories: int = 3,
+                  ) -> None:
         """
         Visualize the metainsight, showing commonness sets on the left and exceptions on the right.
 
-        :param fig: Matplotlib figure to plot on. If None, a new figure is created.
-        :param subplot_spec: GridSpec to plot on. If None, a new GridSpec is created.
-        :param figsize: Size of the figure if a new one is created.
-        :param additional_text: Optional additional text to display in the bottom-middle of the figure.
+        :param plt_ax: The matplotlib axis to plot on.
+        :param plot_num: The plot number for the visualization.
+        :param max_labels: The maximum number of X-axis labels to show in the plot.
+        :param max_common_categories: The maximum number of common categories to show in the plot.
         """
         # Get the highlights for visualization
         highlights = [pattern.highlight for pattern in self.commonness_set]
@@ -427,8 +364,9 @@ class MetaInsight:
                                              gb_col=gb_col,
                                              agg_func=agg_func, commonness_threshold=self.commonness_threshold,
                                              exception_patterns=highlight_change_exceptions,
-                                            exception_labels=exception_labels, plot_num=plot_num
+                                             exception_labels=exception_labels, plot_num=plot_num,
+                                             max_labels=max_labels,
+                                             max_common_categories=max_common_categories
                                              )
 
         return plt_ax
-

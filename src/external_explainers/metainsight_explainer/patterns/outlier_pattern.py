@@ -65,6 +65,8 @@ class OutlierPattern(PatternWithBarPlot):
                        agg_func,
                        exception_patterns: List['OutlierPattern'] = None,
                        exception_labels: List[str] = None,
+                       max_labels: int = 8,
+                       max_common_categories: int = 3,
                        plot_num: int = None) -> None:
         regular_colors = generate_color_shades('Greens', len(patterns))
 
@@ -78,7 +80,8 @@ class OutlierPattern(PatternWithBarPlot):
         # Prepare patterns with consistent numeric positions, and prune if necessary
         index_to_position, sorted_indices, pattern_means, labels = PatternWithBarPlot.prepare_patterns(patterns, labels,
                                                                                                        highlight_indexes,
-                                                                                                       num_to_keep=8,
+                                                                                                       num_to_keep=max_labels,
+                                                                                                       max_common_categories=max_common_categories,
                                                                                                        exception_patterns=exception_patterns)
         # Renew the patterns with the new pattern means
         if pattern_means is not None:

@@ -103,7 +103,10 @@ class PatternBase(ABC):
                        agg_func: str, commonness_threshold: float,
                        gb_col: str,
                        exception_patterns: List['PatternBase'] = None,
-                       exception_labels: List[str] = None, plot_num: int = None) -> None:
+                       exception_labels: List[str] = None, plot_num: int = None,
+                       max_labels: int = 8,
+                       max_common_categories: int = 3,
+                       ) -> None:
         """
         Visualize many patterns of the same type on the same plot.
         :param plt_ax: The matplotlib axes to plot on
@@ -116,6 +119,8 @@ class PatternBase(ABC):
         those common patterns. Should be greatly highlighted in the plot if not None.
         :param exception_labels: Labels for the exception patterns, if exception_patterns is not None.
         :param plot_num: Number of the current plot. If provided, will be added to the title for clarity.
+        :param max_labels: Maximum number of labels in the x-axis to show in the plot.
+        :param max_common_categories: Maximum number of common categories to show in the plot.
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
@@ -213,7 +218,8 @@ class PatternBase(ABC):
 
     @staticmethod
     def prepare_patterns(patterns: List['PatternBase'],
-                         labels: List[str], highlight_indexes: list, num_to_keep = 10,
+                         labels: List[str], highlight_indexes: list, num_to_keep = 8,
+                         max_common_categories: int = 3,
                          exception_patterns: List['PatternBase'] = None) \
             -> tuple[dict, List[int], List[pd.Series] | None, List[str]]:
         """
@@ -223,6 +229,9 @@ class PatternBase(ABC):
         :param labels: Labels for the patterns, used for visualization.
         :param highlight_indexes: The indexes where the common pattern or an exception occurs, or a single index if there is only one.
         :param num_to_keep: The maximum number of indices to keep in the result.
+        :param max_common_categories: The maximum number of common categories to show in the plot. If there are more than this
+        number, they will be grouped together and their mean series will be computed.
+        :param exception_patterns: List of exception patterns, if any. If None, no exceptions are considered.
         :return:
         """
         all_patterns = patterns + (exception_patterns if exception_patterns is not None else [])
@@ -234,10 +243,10 @@ class PatternBase(ABC):
         )
         sorted_indices = list(index_to_position.keys())
 
-        if len(patterns) > 3:
+        if len(patterns) > max_common_categories:
             pattern_groupings, pattern_labels = PatternBase.group_similar_together(patterns,
                                                                                    index_to_position,
-                                                                                   num_groups=3)
+                                                                                   num_groups=max_common_categories)
             # Create the new labels for the grouped patterns
             grouped_labels = PatternBase.labels_to_grouped_labels(labels, pattern_labels)
             # Compute the mean series for each group

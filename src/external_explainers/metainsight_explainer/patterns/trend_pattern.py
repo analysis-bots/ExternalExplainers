@@ -29,6 +29,8 @@ class TrendPattern(PatternBase):
                        agg_func,
                        exception_patterns: List['TrendPattern'] = None,
                        exception_labels: List[str] = None,
+                       max_labels: int = 8,
+                       max_common_categories: int = 3,
                        plot_num: int | None = None, alpha_data: float =0.5, show_data: bool = True) -> None:
         # Define a color cycle for lines
         colors = plt.cm.tab10.colors

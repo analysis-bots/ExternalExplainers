@@ -71,20 +71,10 @@ class UnimodalityPattern(PatternWithBarPlot):
                        commonness_threshold,
                        agg_func,
                        exception_patterns: List['UnimodalityPattern'] = None,
-                       exception_labels: List[str] = None, plot_num: int = None) -> None:
-        """
-        Visualize multiple unimodality patterns on a single plot.
-
-        :param plt_ax: Matplotlib axes to plot on
-        :param patterns: List of UnimodalityPattern objects
-        :param labels: List of labels for each pattern (e.g. data scope descriptions)
-        :param agg_func: Name of the aggregation function used (e.g. 'mean', 'sum') when creating the series that lead to the pattern discovery.
-        :param gb_col: The column used for grouping the data when creating the series that lead to the pattern discovery.
-        :param commonness_threshold: Threshold for commonness (e.g. 0.5 for 50%) used when creating the MetaInsights.
-        :param exception_patterns: Patterns that are of the same type as the common patterns, but are exceptions to
-        those common patterns. Should be greatly highlighted in the plot if not None.
-        :param exception_labels: Labels for the exception patterns, if exception_patterns is not None.
-        """
+                       exception_labels: List[str] = None, plot_num: int = None,
+                       max_labels: int = 8,
+                       max_common_categories: int = 3,
+                       ) -> None:
         # Define a color cycle for lines
         colors = generate_color_shades(
             'Greens', len(patterns)
@@ -96,8 +86,9 @@ class UnimodalityPattern(PatternWithBarPlot):
 
         # Prepare patterns with consistent numeric positions
         index_to_position, sorted_indices, pattern_means, labels = PatternWithBarPlot.prepare_patterns(patterns, labels,
-                                                                                                     highlight_indexes, num_to_keep=8,
-                                                                                                       exception_patterns=exception_patterns)
+                                                                                                     highlight_indexes, num_to_keep=max_labels,
+                                                                                                     exception_patterns=exception_patterns,
+                                                                                                    max_common_categories=max_common_categories)
 
         if pattern_means is not None:
             patterns = [

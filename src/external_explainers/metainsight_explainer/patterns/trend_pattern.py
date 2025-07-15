@@ -103,7 +103,7 @@ class TrendPattern(PatternBase):
             exception_patterns_labels=exception_labels,
             exception_pattern_description=exceptions_description
         )
-        plt_ax.set_title(title)
+        plt_ax.set_title(title, fontsize=22)
 
         # Rotate x-axis tick labels
         plt.setp(plt_ax.get_xticklabels(), rotation=45, ha='right', fontsize=16)

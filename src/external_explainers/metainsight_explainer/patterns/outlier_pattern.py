@@ -155,7 +155,7 @@ class OutlierPattern(PatternWithBarPlot):
         )
         if plot_num is not None:
             title = f"[{plot_num}] {title}"
-        plt_ax.set_title(title if title is not None else "Multiple Outlier Patterns")
+        plt_ax.set_title(title if title is not None else "Multiple Outlier Patterns", fontsize=22)
 
         # Setup legend
         handles, labels_current = plt_ax.get_legend_handles_labels()

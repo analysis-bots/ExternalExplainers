@@ -17,7 +17,7 @@ def generate_color_shades(cmap_name: str, num_colors: int, start: float = 0.3, e
     if num_colors == 0:
         return []
     # Get the colormap object
-    cmap = plt.cm.get_cmap(cmap_name)
+    cmap = plt.get_cmap(cmap_name)
     # Generate N evenly spaced numbers between start and end
     space = np.linspace(start, end, num_colors)
     # Return the list of colors

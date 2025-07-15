@@ -151,7 +151,7 @@ class UnimodalityPattern(PatternWithBarPlot):
         )
         if plot_num is not None:
             title = f"[{plot_num}] {title}"
-        plt_ax.set_title(title)
+        plt_ax.set_title(title, fontsize=22)
 
         # Get the handles and labels from the bars first
         handles, labels = plt_ax.get_legend_handles_labels()

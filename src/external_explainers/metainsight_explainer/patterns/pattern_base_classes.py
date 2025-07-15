@@ -306,7 +306,7 @@ class PatternBase(ABC):
         if title.endswith(','):
             title = title[:-1]
         # Wrap the title to avoid it being too long
-        title = textwrap.fill(title, width=60, break_long_words=True, replace_whitespace=False)
+        title = textwrap.fill(title, width=50, break_long_words=True, replace_whitespace=False)
         return title
 
     @staticmethod

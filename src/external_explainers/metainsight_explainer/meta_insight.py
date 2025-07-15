@@ -28,9 +28,16 @@ class MetaInsight:
                  source_name: str = None,
                  ):
         """
+        Initializes a MetaInsight object.
+
         :param hdp: list of BasicDataPattern objects
-        :param commonness_set: A dictionary mapping commonness patterns to lists of BasicDataPattern objects
+        :param commonness_set: A list of BasicDataPattern objects that envelop the common pattern found in the HDP.
         :param exceptions: A dictionary mapping exception categories to lists of BasicDataPattern objects
+        :param commonness_threshold: The threshold for commonness to be considered a common pattern.
+        :param balance_parameter: The balance parameter for the conciseness calculation.
+        :param actionability_regularizer_param: The actionability regularizer parameter for the conciseness calculation.
+        :param source_name: The name of the source of the data patterns, e.g. "df" for a DataFrame.
+        :param score: The score of the MetaInsight, computed as the product of conciseness and impact.
         """
         self.hdp = hdp
         self.commonness_set: List[BasicDataPattern] = commonness_set

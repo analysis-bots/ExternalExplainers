@@ -5,7 +5,7 @@ from typing import Dict, List, Tuple
 
 from external_explainers.metainsight_explainer.data_scope import DataScope, HomogenousDataScope
 from external_explainers.metainsight_explainer.pattern_evaluations import PatternEvaluator, PatternType
-from external_explainers.metainsight_explainer.patterns import PatternInterface
+from external_explainers.metainsight_explainer.patterns import PatternBase
 from external_explainers.metainsight_explainer.cache import Cache
 
 
@@ -16,7 +16,7 @@ class BasicDataPattern:
     """
     cache = Cache()
 
-    def __init__(self, data_scope: DataScope, pattern_type: PatternType, highlight: PatternInterface | None):
+    def __init__(self, data_scope: DataScope, pattern_type: PatternType, highlight: PatternBase | None):
         """
         Initialize the BasicDataPattern with the provided data scope, type and highlight.
 
@@ -168,11 +168,6 @@ class BasicDataPattern:
                 # convert it to a list and then treat it as an iterable.
                 if not isinstance(dp, typing.Iterable):
                     dp = [dp]
-
-                # # Only add patterns that are not 'No Pattern' to the HDP for MetaInsight evaluation
-                # for d in dp:
-                #     if d is not None and d.pattern_type != PatternType.NONE:
-                #         hdp.append(d)
 
                 # Add all patterns, including 'No Pattern', since it is important to know that we had a 'No Pattern'.
                 for d in dp:

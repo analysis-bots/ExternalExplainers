@@ -53,23 +53,16 @@ class MetaInsightMiner:
         :return: The variety factor between 0 and 1.
         """
         # Get pattern types in this metainsight
-        candidate_pattern_types = [commonness[0].pattern_type for commonness in metainsight.commonness_set]
+        candidate_pattern_type = metainsight.commonness_set[0].pattern_type
 
-        if not candidate_pattern_types:
-            return 0.0
-
-        # Calculate how many of this metainsight's pattern types are already included
-        pattern_repetition = [included_pattern_types_count.get(pt, 0) for pt in candidate_pattern_types]
-        if any(pt == 0 for pt in pattern_repetition):
+        # Check if this MetaInsight's pattern type is already included
+        pattern_repetition = included_pattern_types_count.get(candidate_pattern_type, 0)
+        if pattern_repetition == 0:
             return 1
-        pattern_repetition = sum(pattern_repetition)
-
-        # Normalize by the number of pattern types in this metainsight
-        avg_repetition = pattern_repetition / len(candidate_pattern_types)
 
         # Exponential decay: variety_factor decreases as pattern repetition increases
         # The 0.5 constant controls how quickly the penalty grows
-        variety_factor = np.exp(-0.5 * avg_repetition)
+        variety_factor = np.exp(-0.5 * pattern_repetition / self.k)
 
         return variety_factor
 
@@ -123,10 +116,9 @@ class MetaInsightMiner:
                 selected_metainsights.append(best_candidate)
                 candidate_set.remove(best_candidate)
                 # Store a counter for the pattern types of the selected candidates
-                candidate_pattern_types = [commonness[0].pattern_type for commonness in best_candidate.commonness_set]
-                for pattern_type in candidate_pattern_types:
-                    if pattern_type in included_pattern_types_count:
-                        included_pattern_types_count[pattern_type] += 1
+                candidate_pattern_type = best_candidate.commonness_set[0].pattern_type
+                if candidate_pattern_type in included_pattern_types_count:
+                    included_pattern_types_count[candidate_pattern_type] += 1
             else:
                 # No candidate provides a positive gain, or candidate_set is empty
                 break
@@ -235,19 +227,20 @@ class MetaInsightMiner:
         while not hdp_queue.empty():
             hdp, pattern_type = hdp_queue.get()
 
-            # Evaluate HDP to find MetaInsight
-            metainsight = MetaInsight.create_meta_insight(hdp, commonness_threshold=self.min_commonness)
+            # Evaluate HDP to find MetaInsight(s)
+            metainsights = MetaInsight.create_meta_insight(hdp, commonness_threshold=self.min_commonness)
 
-            if metainsight:
-                # Calculate and assign the score
-                metainsight.compute_score()
-                if metainsight in metainsight_candidates:
-                    other_metainsight = metainsight_candidates[metainsight]
-                    if metainsight.score > other_metainsight.score:
-                        # If the new metainsight is better, replace the old one
+            if metainsights is not None:
+                for metainsight in metainsights:
+                    # Calculate and assign the score
+                    metainsight.compute_score()
+                    if metainsight in metainsight_candidates:
+                        other_metainsight = metainsight_candidates[metainsight]
+                        if metainsight.score > other_metainsight.score:
+                            # If the new metainsight is better, replace the old one
+                            metainsight_candidates[metainsight] = metainsight
+                    else:
                         metainsight_candidates[metainsight] = metainsight
-                else:
-                    metainsight_candidates[metainsight] = metainsight
 
         return self.rank_metainsights(list(metainsight_candidates))
 
@@ -286,18 +279,21 @@ if __name__ == "__main__":
     end_time = time.time()
     print(f"Time taken: {end_time - start_time:.2f} seconds")
 
-    nrows = 4
-    ncols = 1
+    nrows = 2
+    ncols = 2
 
-    fig_len = 20 * ncols
-    fig_height = 15 * nrows
+    fig_len = 9 * ncols
+    fig_height = 11 * nrows
 
-    fig = plt.figure(figsize=(fig_len, fig_height))
-    main_grid = gridspec.GridSpec(nrows, ncols, figure=fig, wspace=0.2, hspace=0.3)
+    fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(fig_len, fig_height), layout="constrained")
 
     for i, mi in enumerate(top_metainsights[:4]):
-        row, col = i, 0
-        mi.visualize(fig=fig, subplot_spec=main_grid[row, col])
+        row = i // ncols
+        col = i % ncols
+        mi.visualize(
+            plt_ax=axs[row, col],
+            plot_num=i + 1
+        )
 
     # plt.tight_layout()
     plt.show()

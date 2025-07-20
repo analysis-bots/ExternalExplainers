@@ -31,7 +31,7 @@ class TrendPattern(PatternBase):
                        exception_labels: List[str] = None,
                        max_labels: int = 8,
                        max_common_categories: int = 3,
-                       plot_num: int | None = None, alpha_data: float =0.5, show_data: bool = True) -> None:
+                       plot_num: int | None = None, alpha_data: float =0.7, show_data: bool = True) -> None:
         # Define a color cycle for lines
         colors = plt.cm.tab10.colors
 
@@ -68,7 +68,7 @@ class TrendPattern(PatternBase):
                                 idx in index_to_position]
             mean_values = [overall_mean_series.loc[idx] for idx in overall_mean_series.index if
                            idx in index_to_position]
-            plt_ax.plot(mean_x_positions, mean_values, color='gray', alpha=alpha_data, linewidth=5,
+            plt_ax.plot(mean_x_positions, mean_values, color='black', alpha=alpha_data, linewidth=5,
                         label='Mean Over All Data')
 
         # If exception patterns are provided, visualize them

@@ -1,4 +1,4 @@
-from typing import List, Literal
+from typing import List
 
 import pandas as pd
 from matplotlib import pyplot as plt

@@ -35,13 +35,13 @@ setup(
     },
     install_requires=[
         'wheel',
-        'pandas',
-        'numpy',
-        'matplotlib',
-        'pymannkendall',
-        'scipy',
-        'singleton-decorator',
-        'scikit-learn',
-        'diptest'
+        'pandas>=2.2.3',
+        'numpy>=2.1.3',
+        'matplotlib>=3.9.0',
+        'pymannkendall>=1.4.2',
+        'scipy>=1.14.1',
+        'singleton-decorator>=1.0.0',
+        'scikit-learn>=1.6.0',
+        'diptest>=0.9.0',
     ]
 )
